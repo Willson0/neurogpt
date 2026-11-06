@@ -1,0 +1,11 @@
+.env
+.DS_Store
+node_modules/
+dist/
+backend/vendor/
+backend/.env
+backend/database/database.sqlite
+backend/storage/logs/*
+backend/storage/app/public/*
+backend/storage/app/private/*
+backend/public/storage

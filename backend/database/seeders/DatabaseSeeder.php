@@ -14,18 +14,20 @@ class DatabaseSeeder extends Seeder
         $driver = config('neurogpt.providers.default');
 
         // provider_model is the id on the provider's side; replace it with the models you plug in.
+        $text = config('neurogpt.providers.openai.text_model');
+        $image = config('neurogpt.providers.openai.image_model');
         $models = [
             'text' => [
-                ['auto', 'Авто', 'Сама выберет лучшую модель', 1, 'Советуем', true, 'free', 'gpt-4o-mini'],
-                ['fast', 'Быстрая', 'Короткие ответы за секунду', 1, 'Бесплатно', true, 'free', 'gpt-4o-mini'],
-                ['smart', 'Умная', 'Сложные задачи, код, анализ', 3, null, false, 'free', 'gpt-4o'],
-                ['long', 'Документы', 'Читает PDF и длинные тексты', 5, null, false, 'plus', 'gpt-4o'],
+                ['auto', 'Авто', 'Сама выберет лучшую модель', 1, 'Советуем', true, 'free', $text],
+                ['fast', 'Быстрая', 'Короткие ответы за секунду', 1, 'Бесплатно', true, 'free', $text],
+                ['smart', 'Умная', 'Сложные задачи, код, анализ', 3, null, false, 'free', $text],
+                ['long', 'Документы', 'Читает PDF и длинные тексты', 5, null, false, 'plus', $text],
             ],
             'image' => [
-                ['auto', 'Авто', 'Сама выберет лучшую модель', 8, 'Советуем', true, 'free', 'gpt-image-1'],
-                ['quick', 'Быстрая', 'Черновик за 5 секунд', 4, null, true, 'free', 'gpt-image-1'],
-                ['detail', 'Детальная', 'Мелкие детали и текст на картинке', 12, 'New', false, 'free', 'gpt-image-1'],
-                ['photo', 'Фотореализм', 'Как настоящая фотография', 16, null, false, 'plus', 'gpt-image-1'],
+                ['auto', 'Авто', 'Сама выберет лучшую модель', 8, 'Советуем', true, 'free', $image],
+                ['quick', 'Быстрая', 'Черновик за 5 секунд', 4, null, true, 'free', $image],
+                ['detail', 'Детальная', 'Мелкие детали и текст на картинке', 12, 'New', false, 'free', $image],
+                ['photo', 'Фотореализм', 'Как настоящая фотография', 16, null, false, 'plus', $image],
             ],
             'video' => [
                 ['auto', 'Авто', 'Сама выберет лучшую модель', 60, 'Советуем', false, 'pro', null],

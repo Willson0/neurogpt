@@ -73,6 +73,10 @@ return [
             'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
             'api_key' => env('OPENAI_API_KEY'),
             'timeout' => (int) env('OPENAI_TIMEOUT', 120),
+            // How a photo is sent for editing: "multipart" (OpenAI) or "image_url" (HydraAI: JSON field with a data URI)
+            'image_edit' => env('OPENAI_IMAGE_EDIT', 'multipart'),
+            'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-4o-mini'),
+            'image_model' => env('OPENAI_IMAGE_MODEL', 'gpt-image-1'),
         ],
         'replicate' => [
             'base_url' => env('REPLICATE_BASE_URL', 'https://api.replicate.com/v1'),

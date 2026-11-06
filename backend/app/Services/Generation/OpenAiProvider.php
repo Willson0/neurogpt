@@ -54,7 +54,18 @@ class OpenAiProvider implements Provider
             $prompt .= '. Без: '.$generation->params['negative'];
         }
 
-        if ($inputPath) {
+        if ($inputPath && config('neurogpt.providers.openai.image_edit') === 'image_url') {
+            // Gateways such as HydraAI take the source picture as a data URI in a JSON field.
+            $mime = mime_content_type($inputPath) ?: 'image/png';
+            $res = $this->http()->post('/images/generations', [
+                'model' => $model->provider_model,
+                'prompt' => $prompt,
+                'size' => $size,
+                'n' => 1,
+                'response_format' => 'b64_json',
+                'image_url' => 'data:'.$mime.';base64,'.base64_encode(file_get_contents($inputPath)),
+            ])->throw()->json();
+        } elseif ($inputPath) {
             // Photoset: the user's photo is the base of the edit.
             $res = $this->http()->asMultipart()
                 ->attach('image', file_get_contents($inputPath), basename($inputPath))

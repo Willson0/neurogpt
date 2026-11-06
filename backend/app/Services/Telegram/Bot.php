@@ -33,7 +33,9 @@ class Bot
             return null;
         }
 
-        return $res->json('result');
+        $result = $res->json('result');
+
+        return is_array($result) ? $result : ['ok' => (bool) $result];
     }
 
     public function sendMessage(int $chatId, string $text, array $extra = []): ?array

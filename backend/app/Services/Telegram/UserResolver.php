@@ -5,7 +5,9 @@ namespace App\Services\Telegram;
 use App\Exceptions\InvalidInitData;
 use App\Models\User;
 use App\Services\Billing\Wallet;
+use App\Jobs\SyncAvatar;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 
 class UserResolver
 {
@@ -36,7 +38,12 @@ class UserResolver
         ];
 
         if ($user) {
+            // A locally stored avatar wins over the (often unreachable) Telegram CDN link.
+            if (str_starts_with((string) $user->photo_url, '/storage/')) {
+                unset($profile['photo_url']);
+            }
             $user->fill($profile)->save();
+            $this->syncAvatar($user);
 
             return $user;
         }
@@ -60,6 +67,15 @@ class UserResolver
             $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
         }
 
+        $this->syncAvatar($user);
+
         return $user->refresh();
+    }
+
+    private function syncAvatar(User $user): void
+    {
+        if (config('neurogpt.telegram.bot_token') && Cache::add("avatar-sync:{$user->id}", 1, now()->addDay())) {
+            SyncAvatar::dispatch($user->id);
+        }
     }
 }

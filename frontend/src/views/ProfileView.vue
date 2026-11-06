@@ -2,7 +2,7 @@
   <div class="view" data-view="profile">
     <div class="me">
       <div class="avatar">
-        <img v-if="u.photo_url" :src="u.photo_url" alt="" style="width:100%;height:100%;border-radius:inherit;object-fit:cover" referrerpolicy="no-referrer">
+        <img v-if="u.photo_url && !imgBad" :src="u.photo_url" alt="" style="width:100%;height:100%;border-radius:inherit;object-fit:cover" referrerpolicy="no-referrer" @error="imgBad = true">
         <span v-else>{{ (u.name || '?')[0] }}</span>
       </div>
       <h2>{{ u.name }}</h2>
@@ -55,7 +55,7 @@ import Odometer from '../components/Odometer.vue'
 export default {
   name: 'ProfileView',
   components: { Sticker, Odometer },
-  data: () => ({ support: import.meta.env.VITE_SUPPORT_URL || '' }),
+  data: () => ({ support: import.meta.env.VITE_SUPPORT_URL || '', imgBad: false }),
   computed: {
     app() { return useApp() },
     u() { return this.app.user || {} },

@@ -8,9 +8,9 @@
       </LensBar>
       <button ref="cta" type="button" :class="['cta', ctaOpen ? 'open' : '']" :aria-label="ctaAria" @click="onCta">
         <span class="fab"><svg aria-hidden="true"><use href="#i-spark" /></svg></span>
-        <span class="lbl">
+        <span :class="['lbl', ctaOpen && short ? 'short' : '']">
           <template v-if="app.current === 'home' && hasPrompt && app.mode !== 'tools'">
-            <template v-if="short">Пополнить и создать</template>
+            <template v-if="short">Пополнить</template>
             <template v-else>{{ app.mode === 'text' ? 'Спросить' : 'Создать' }}<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
           </template>
           <template v-else-if="emptyGallery">Создать первую</template>

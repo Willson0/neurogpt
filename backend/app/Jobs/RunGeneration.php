@@ -89,11 +89,16 @@ class RunGeneration implements ShouldQueue
         $caption = $g->prompt ? Str::limit($g->prompt, 900) : null;
         $name = 'result.'.$ext;
 
-        match (true) {
+        $sent = match (true) {
             in_array($ext, ['mp4', 'mov', 'webm'], true) => $bot->sendVideo($chatId, $bytes, $name, $caption),
             in_array($ext, ['png', 'jpg', 'jpeg', 'webp'], true) && strlen($bytes) < 9_500_000 => $bot->sendPhoto($chatId, $bytes, $name, $caption),
             default => $bot->sendDocument($chatId, $bytes, $name, $caption),
         };
+
+        // Telegram refuses some photos (odd dimensions, size): the file itself still gets there.
+        if ($sent === null) {
+            $bot->sendDocument($chatId, $bytes, $name, $caption);
+        }
     }
 
     private function rewardReferrer(User $user, Wallet $wallet): void

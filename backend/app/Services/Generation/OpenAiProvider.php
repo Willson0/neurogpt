@@ -85,10 +85,10 @@ class OpenAiProvider implements Provider
 
         $item = $res['data'][0] ?? [];
         if (! empty($item['b64_json'])) {
-            return new MediaResult(base64_decode($item['b64_json']), 'png');
+            return ImageNormalizer::normalize(base64_decode($item['b64_json']));
         }
         if (! empty($item['url'])) {
-            return new MediaResult(Http::timeout(60)->get($item['url'])->throw()->body(), 'png');
+            return ImageNormalizer::normalize(Http::timeout(60)->get($item['url'])->throw()->body());
         }
 
         throw new RuntimeException('The provider returned no image');

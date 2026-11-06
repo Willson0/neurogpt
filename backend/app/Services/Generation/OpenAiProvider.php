@@ -5,6 +5,7 @@ namespace App\Services\Generation;
 use App\Models\AiModel;
 use App\Models\Generation;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /** OpenAI-compatible API: OpenAI itself, OpenRouter, or any gateway that speaks the same dialect. */
@@ -84,11 +85,34 @@ class OpenAiProvider implements Provider
         }
 
         $item = $res['data'][0] ?? [];
-        if (! empty($item['b64_json'])) {
-            return ImageNormalizer::normalize(base64_decode($item['b64_json']));
+        $b64 = $item['b64_json'] ?? null;
+        $url = $item['url'] ?? null;
+
+        // Some gateways put a data URI or a plain link into b64_json.
+        if (is_string($b64) && preg_match('#^https?://#i', $b64)) {
+            [$url, $b64] = [$b64, null];
         }
-        if (! empty($item['url'])) {
-            return ImageNormalizer::normalize(Http::timeout(60)->get($item['url'])->throw()->body());
+        if (is_string($b64) && str_starts_with($b64, 'data:')) {
+            $b64 = substr($b64, (int) strpos($b64, ',') + 1);
+        }
+        if (is_string($url) && str_starts_with($url, 'data:')) {
+            [$b64, $url] = [substr($url, (int) strpos($url, ',') + 1), null];
+        }
+
+        $bytes = null;
+        if (! empty($b64)) {
+            $bytes = base64_decode(preg_replace('/\s+/', '', $b64), true) ?: null;
+        } elseif (! empty($url)) {
+            $bytes = Http::timeout(60)->get($url)->throw()->body();
+        }
+
+        if ($bytes !== null) {
+            if (! @getimagesizefromstring($bytes)) {
+                Log::warning('Provider returned data that is not an image', ['head' => substr(bin2hex(substr($bytes, 0, 16)), 0, 32), 'size' => strlen($bytes), 'keys' => array_keys($item)]);
+                throw new RuntimeException('The provider returned invalid image data');
+            }
+
+            return ImageNormalizer::normalize($bytes);
         }
 
         throw new RuntimeException('The provider returned no image');

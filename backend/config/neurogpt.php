@@ -75,6 +75,8 @@ return [
             'timeout' => (int) env('OPENAI_TIMEOUT', 120),
             // How a photo is sent for editing: "multipart" (OpenAI) or "image_url" (HydraAI: JSON field with a data URI)
             'image_edit' => env('OPENAI_IMAGE_EDIT', 'multipart'),
+            // Image size style: "pixels" (1024x1024, OpenAI) or "ratio" (1:1, HydraAI)
+            'image_size' => env('OPENAI_IMAGE_SIZE', 'pixels'),
             'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-4o-mini'),
             'image_model' => env('OPENAI_IMAGE_MODEL', 'gpt-image-1'),
         ],

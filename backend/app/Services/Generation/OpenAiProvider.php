@@ -41,11 +41,11 @@ class OpenAiProvider implements Provider
             throw new RuntimeException('The openai driver generates images only');
         }
 
-        $size = match ($generation->params['format'] ?? '1:1') {
-            '9:16' => '1024x1536',
-            '16:9' => '1536x1024',
-            default => '1024x1024',
-        };
+        $format = $generation->params['format'] ?? '1:1';
+        // Gateways such as HydraAI size images by aspect ratio ("2:3"), OpenAI by pixels.
+        $size = config('neurogpt.providers.openai.image_size') === 'ratio'
+            ? match ($format) { '9:16' => '2:3', '16:9' => '3:2', default => '1:1' }
+            : match ($format) { '9:16' => '1024x1536', '16:9' => '1536x1024', default => '1024x1024' };
         $prompt = $generation->prompt;
         if (! empty($generation->params['style']) && $generation->params['style'] !== 'любой') {
             $prompt .= ', стиль: '.$generation->params['style'];

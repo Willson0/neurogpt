@@ -66,9 +66,27 @@ docker compose logs -f app queue
 
 При старте контейнер сам применяет миграции и заполняет каталог (модели, фотосеты, новости).
 
-### 4. HTTPS через Caddy (сертификат выпускается сам)
+### 4. HTTPS
 
-В `.env` поставьте `WEB_PORT=8080`, затем `docker compose up -d`. Установите Caddy на хост:
+**Вариант А: на сервере уже стоит nginx (порт 8089).** Запускайте отдельный файл, он слушает только `127.0.0.1:8089`:
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+Затем добавьте сайт в nginx на хосте, пример лежит в `docker/nginx/host-site.conf.example`:
+
+```bash
+sudo cp docker/nginx/host-site.conf.example /etc/nginx/sites-available/neurogpt
+sudo nano /etc/nginx/sites-available/neurogpt        # замените app.example.com на ваш домен
+sudo ln -s /etc/nginx/sites-available/neurogpt /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d app.example.com              # выпустит HTTPS-сертификат
+```
+
+Дальше все команды `docker compose ...` из этой инструкции выполняйте с `-f docker-compose.server.yml`.
+
+**Вариант Б: nginx на сервере нет.** В `.env` поставьте `WEB_PORT=8080`, запустите обычный `docker compose up -d` и поставьте Caddy, он сам выпустит сертификат:
 
 ```bash
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https

@@ -18,7 +18,7 @@ export const useApp = defineStore('app', {
     bootError: null,
     galleryError: false,
     user: null,
-    models: { text: [], image: [], video: [] },
+    models: { image: [], video: [], song: [] },
     photosets: [],
     news: [],
     packs: [],
@@ -35,9 +35,10 @@ export const useApp = defineStore('app', {
 
     // composer
     mode: 'image',
-    modelSel: { text: 'auto', image: 'auto', video: 'auto' },
+    modelSel: { image: 'auto', video: 'auto', song: 'auto' },
     fmtIndex: 0,
     duration: 5,
+    songDuration: 30,
     count: 1,
     style: 'любой',
     negative: '',
@@ -46,8 +47,6 @@ export const useApp = defineStore('app', {
 
     // generation screen
     gen: null, // { items: [...], done, failed, pendingCost, startedAt, photoset }
-    // chat
-    chat: { id: null, messages: [], busy: false },
     history: { items: [], loaded: false },
     // billing
     packIndex: 1,
@@ -72,10 +71,10 @@ export const useApp = defineStore('app', {
       const list = this.models[this.mode === 'tools' ? 'image' : this.mode] || []
       return list.find((m) => m.id === this.modelSel[this.mode]) || list[0] || { id: 'auto', name: 'Авто', hint: '', price: 0 }
     },
-    textModel: (s) => (s.models.text || []).find((m) => m.id === s.modelSel.text) || (s.models.text || [])[0] || { name: 'Авто', price: 1 },
     cost() {
       const m = this.model
       if (this.mode === 'video') return m.price * (this.duration === 10 ? 2 : 1)
+      if (this.mode === 'song') return m.price * (this.songDuration / 30)
       if (this.mode === 'image') return m.price * this.count
       return m.price
     },
@@ -106,7 +105,7 @@ export const useApp = defineStore('app', {
     },
     applyBootstrap(d) {
       this.user = d.user
-      this.models = { text: [], image: [], video: [], ...d.models }
+      this.models = { image: [], video: [], song: [], ...d.models }
       this.photosets = d.photosets
       this.news = d.news
       this.packs = d.packs
@@ -160,6 +159,11 @@ export const useApp = defineStore('app', {
     },
     cycleFormat() { this.fmtIndex = (this.fmtIndex + 1) % FORMATS.length; tg.haptic('selection') },
     toggleDuration() { this.duration = this.duration === 5 ? 10 : 5; tg.haptic('selection') },
+    cycleSongDuration() {
+      const steps = [30, 60, 120]
+      this.songDuration = steps[(steps.indexOf(this.songDuration) + 1) % steps.length]
+      tg.haptic('selection')
+    },
     selectModel(kind, m) {
       if (this.isLocked(m)) {
         tg.haptic('warning')
@@ -190,7 +194,7 @@ export const useApp = defineStore('app', {
     // ---------- generation ----------
     async start(extra = {}) {
       const photoset = extra.photoset || null
-      const kind = this.mode === 'video' ? 'video' : 'image'
+      const kind = this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
       const cost = photoset ? this.models.image.find((m) => m.id === this.modelSel.image)?.price ?? this.model.price : this.cost
       if (this.balance < cost) { tg.haptic('warning'); return this.openSheet('need', { lack: cost - this.balance }) }
       if (this.busy) return
@@ -199,8 +203,8 @@ export const useApp = defineStore('app', {
         const body = photoset
           ? { kind: 'image', model: this.modelSel.image, photoset_id: photoset.id, prompt: extra.prompt || '' }
           : {
-            kind, model: this.modelSel[kind], prompt: this.prompt.trim(), format: this.format.ratio,
-            duration: kind === 'video' ? this.duration : undefined,
+            kind, model: this.modelSel[kind], prompt: this.prompt.trim(), format: kind === 'song' ? undefined : this.format.ratio,
+            duration: kind === 'video' ? this.duration : kind === 'song' ? this.songDuration : undefined,
             count: kind === 'image' ? this.count : undefined,
             style: this.style !== 'любой' ? this.style : undefined,
             negative: this.negative.trim() || undefined,
@@ -220,7 +224,7 @@ export const useApp = defineStore('app', {
       tg.haptic('medium')
       this.gen = {
         ids: r.data.map((g) => g.id), items: r.data, done: false, failed: false, filtered: false,
-        cost: r.data.reduce((a, g) => a + g.cost, 0), startedAt: Date.now(), kind, ar: this.format.ar, photoset: false, ...extra,
+        cost: r.data.reduce((a, g) => a + g.cost, 0), startedAt: Date.now(), kind, ar: kind === 'song' ? 1.6 : this.format.ar, photoset: false, ...extra,
       }
       this.stack = this.current === 'create' ? this.stack : [...this.stack, 'create']
       this.transition = 'in-push'
@@ -236,13 +240,13 @@ export const useApp = defineStore('app', {
       this.push('create')
       if (!final) this.pollGeneration()
     },
-    async startTool(tool, file) {
+    async startTool(tool, file, sourceId = null) {
       const info = this.tools.find((t) => t.id === tool)
       if (!info || this.busy) return
       if (this.balance < info.cost) return this.openSheet('need', { lack: info.cost - this.balance })
       this.busy = true
       try {
-        this.beginGeneration(await api.createGeneration({ kind: 'tool', tool }, file), 'tool')
+        this.beginGeneration(await api.createGeneration({ kind: 'tool', tool, source_generation_id: sourceId }, file), 'tool')
       } catch (e) {
         this.handleActionError(e)
       } finally {
@@ -279,7 +283,9 @@ export const useApp = defineStore('app', {
       gen.filtered = gen.items.some((g) => g.error === 'content_filtered')
       if (gen.failed) {
         tg.haptic('error')
-        if (gen.filtered) { this.back(); this.openSheet('filter') } else this.toast('Не получилось, токены вернулись', 'cry')
+        if (gen.filtered) { this.back(); this.openSheet('filter') }
+        else if (gen.items.some((g) => g.error === 'unavailable')) this.toast('Песни пока недоступны, токены вернулись', 'cry')
+        else this.toast('Не получилось, токены вернулись', 'cry')
       } else {
         tg.haptic('success')
         this.toast('Готово, отправили в чат', 'party')
@@ -332,56 +338,6 @@ export const useApp = defineStore('app', {
         if (e.status === 429) return this.toast('Слишком часто, подождите немного')
       }
       this.toast('Что-то пошло не так, попробуйте ещё раз', 'cry')
-    },
-
-    // ---------- chat ----------
-    openChat() { this.chat = { id: null, messages: [], busy: false }; this.push('chat') },
-    async openChatById(id) {
-      try {
-        const c = await api.chat(id)
-        this.chat = { id: c.id, messages: c.messages.map((m) => ({ ...m })), busy: false }
-        this.push('chat')
-      } catch (e) { this.handleActionError(e) }
-    },
-    async sendMessage(text) {
-      const m = this.textModel
-      if (this.chat.busy) return
-      if (this.balance < m.price) return this.openSheet('need', { lack: m.price - this.balance })
-      this.chat.messages.push({ id: 'u' + Date.now(), role: 'user', content: text })
-      this.chat.messages.push({ id: 'b' + Date.now(), role: 'assistant', content: '', thinking: true, cost: m.price })
-      // take the reactive proxies back out of the array, otherwise later mutations are invisible to the UI
-      const bot = this.chat.messages[this.chat.messages.length - 1]
-      const mine = this.chat.messages[this.chat.messages.length - 2]
-      this.chat.busy = true
-      tg.haptic('light')
-      try {
-        const r = await api.sendMessage({ chat_id: this.chat.id, message: text, model: this.modelSel.text })
-        this.chat.id = r.chat_id
-        this.setUser(r.user)
-        await this.streamInto(bot, r.message.content)
-        bot.cost = r.message.cost
-      } catch (e) {
-        this.chat.messages = this.chat.messages.filter((x) => x.id !== bot.id && x.id !== mine.id)
-        this.handleActionError(e)
-      } finally {
-        this.chat.busy = false
-      }
-    },
-    streamInto(msg, full) {
-      const words = full.split(' ')
-      const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
-      return new Promise((resolve) => {
-        let i = 0
-        msg.thinking = false
-        const tick = () => {
-          i = reduce ? words.length : i + 2
-          msg.content = words.slice(0, i).join(' ')
-          msg.streaming = i < words.length
-          if (i < words.length) setTimeout(tick, 40)
-          else resolve()
-        }
-        tick()
-      })
     },
 
     // ---------- history ----------
@@ -445,7 +401,7 @@ export const useApp = defineStore('app', {
     invite() {
       const link = this.inviteLink()
       if (!link) return this.toast('Ссылка появится после запуска бота')
-      tg.share(link, 'Заходи в NeuroGPT: картинки, видео и чат с нейросетями. Нам обоим подарят токены.')
+      tg.share(link, 'Заходи в NeuroGPT: картинки, видео и песни от нейросетей. Нам обоим подарят токены.')
     },
     async copyInvite() {
       const link = this.inviteLink()

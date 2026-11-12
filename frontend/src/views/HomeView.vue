@@ -33,6 +33,9 @@
         <button v-if="app.mode === 'video'" type="button" class="pill-btn" @click="app.toggleDuration()">
           <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ app.duration }} секунд</span>
         </button>
+        <button v-if="app.mode === 'song'" type="button" class="pill-btn" @click="app.cycleSongDuration()">
+          <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ songLabel }}</span>
+        </button>
         <span class="grow" />
         <button type="button" class="pill-btn hot" @click="improve"><svg class="ic-s" aria-hidden="true"><use href="#i-wand" /></svg>Улучшить</button>
       </div>
@@ -94,7 +97,6 @@
 
 <script>
 import { useApp } from '../stores/app'
-import { api } from '../services/api'
 import { plural, tok } from '../services/format'
 import { tg } from '../services/telegram'
 import BalanceButton from '../components/BalanceButton.vue'
@@ -112,19 +114,22 @@ export default {
   name: 'HomeView',
   components: { BalanceButton, LensBar, Sticker, ArtCanvas, NewsDeck },
   data: () => ({
-    chats: [],
     modes: [
-      { id: 'text', label: 'Текст' }, { id: 'image', label: 'Фото' }, { id: 'video', label: 'Видео' }, { id: 'tools', label: 'Ещё' },
+      { id: 'image', label: 'Фото' }, { id: 'video', label: 'Видео' }, { id: 'song', label: 'Песня' }, { id: 'tools', label: 'Ещё' },
     ],
     placeholders: {
-      text: 'Письмо, идея, код, перевод: спросите что угодно',
       image: 'Кот-космонавт в стиле акварели',
       video: 'Волны на закате, камера летит вдоль берега',
+      song: 'Нежная песня про первый снег и тёплый чай',
     },
     toolIcons: { upscale: 'upscale', remove_bg: 'eraser', animate: 'video' },
   }),
   computed: {
     app() { return useApp() },
+    songLabel() {
+      const d = this.app.songDuration
+      return d >= 60 ? `${d / 60} ${d === 60 ? 'минута' : 'минуты'}` : `${d} секунд`
+    },
     expiresIn() {
       const u = this.app.user
       if (!u || u.plan === 'free' || !u.plan_expires_at) return null
@@ -134,18 +139,12 @@ export default {
     recent() {
       const items = [
         ...this.app.recent.filter((g) => g.status === 'done' || g.status === 'processing' || g.status === 'queued').map((g) => ({
-          key: 'g' + g.id, at: g.created_at, icon: g.kind === 'video' ? 'video' : 'image',
-          title: g.prompt || 'Генерация', sub: `${g.kind === 'video' ? 'Видео' : 'Фото'}, ${ago(g.created_at)}`, open: () => this.app.openResult(g),
-        })),
-        ...this.chats.map((c) => ({
-          key: 'c' + c.id, at: c.updated_at, icon: 'text', title: c.title || 'Чат', sub: `Чат, ${ago(c.updated_at)}`, open: () => this.app.openChatById(c.id),
+          key: 'g' + g.id, at: g.created_at, icon: g.kind === 'video' ? 'video' : g.kind === 'song' ? 'music' : 'image',
+          title: g.prompt || 'Генерация', sub: `${g.kind === 'video' ? 'Видео' : g.kind === 'song' ? 'Песня' : 'Фото'}, ${ago(g.created_at)}`, open: () => this.app.openResult(g),
         })),
       ]
       return items.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 4)
     },
-  },
-  async mounted() {
-    try { this.chats = (await api.chats()).slice(0, 3) } catch { /* optional block */ }
   },
   methods: {
     plural, tok,

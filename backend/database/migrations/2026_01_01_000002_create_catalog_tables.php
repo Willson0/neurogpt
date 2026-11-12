@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('ai_models', function (Blueprint $table) {
             $table->id();
             $table->string('slug');
-            $table->string('kind', 16); // text | image | video
+            $table->string('kind', 16); // text | image | video | song
             $table->string('name');
             $table->string('hint')->nullable();
             $table->unsignedInteger('price');

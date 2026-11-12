@@ -2,6 +2,7 @@
   <div :class="['stage', done ? 'done' : '']" :style="{ '--ar': ar, ...(selected ? { outline: '2px solid var(--color-accent)', outlineOffset: '2px' } : {}) }">
     <canvas ref="cv" role="img" aria-label="Результат генерации" />
     <video v-if="isVideo && done" :src="item.result_url" class="vid" autoplay loop muted playsinline controls style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" />
+    <audio v-if="isSong && done" :src="item.result_url" class="aud" controls preload="metadata" style="position:absolute;left:var(--space-sm);right:var(--space-sm);bottom:var(--space-sm);width:calc(100% - 2 * var(--space-sm))" />
     <span v-if="!done && !failed" class="scan" />
     <span v-if="!done && !failed" class="step">{{ label }}</span>
   </div>
@@ -10,7 +11,7 @@
 <script>
 import { reduceMotion } from '../services/format'
 
-// Noise that resolves into the real result: the waiting state and the reveal in one canvas.
+// A calm aurora that resolves into the real result: the waiting state and the reveal in one canvas.
 export default {
   name: 'ResultStage',
   props: { item: { type: Object, required: true }, ar: { type: Number, default: 1 }, selected: Boolean },
@@ -18,6 +19,7 @@ export default {
   data: () => ({ done: false, raf: 0, img: null, t0: 0, revealStart: 0, now: Date.now() }),
   computed: {
     failed() { return ['failed', 'cancelled'].includes(this.item.status) },
+    isSong() { return /\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i.test(this.item.result_url || '') || this.item.kind === 'song' },
     isVideo() { return /\.(mp4|mov|webm)(\?|$)/i.test(this.item.result_url || '') },
     label() {
       if (this.item.status === 'queued') return 'В очереди'
@@ -45,6 +47,7 @@ export default {
     },
     load(url) {
       if (this.isVideo) { this.img = 'video'; return }
+      if (this.isSong) { this.img = 'audio'; return }
       const img = new Image()
       img.onload = () => { this.img = img }
       img.onerror = () => { this.img = 'broken' }
@@ -59,23 +62,14 @@ export default {
       if (!cv) return
       const ctx = cv.getContext('2d')
       const W = cv.width, H = cv.height
-      this.noise ??= document.createElement('canvas')
-      const noise = this.noise
-      if (!noise.width) { noise.width = 96; noise.height = Math.max(1, Math.round(96 * H / W)) }
-      const nx = noise.getContext('2d')
-      const nd = nx.createImageData(noise.width, noise.height)
-      for (let i = 0; i < nd.data.length; i += 4) {
-        const v = Math.random() * 255
-        nd.data[i] = v; nd.data[i + 1] = v * (0.6 + Math.random() * 0.4); nd.data[i + 2] = v * Math.random(); nd.data[i + 3] = 255
-      }
-      nx.putImageData(nd, 0, 0)
-      ctx.imageSmoothingEnabled = false
+      this.drawAurora(ctx, W, H, now)
+      ctx.imageSmoothingEnabled = true
 
-      const ready = this.img && this.img !== 'broken' && this.img !== 'video' && this.item.status === 'done'
+      const ready = this.img && this.img !== 'broken' && this.img !== 'video' && this.img !== 'audio' && this.item.status === 'done'
       if (this.failed || this.img === 'broken') { ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, 0, W, H); return }
       if (this.img === 'video') { this.finish(); return }
+      if (this.img === 'audio' && this.item.status === 'done') { if (!this.done) this.finish(); this.raf = requestAnimationFrame(this.frame); return }
       if (!ready) {
-        ctx.drawImage(noise, 0, 0, W, H)
         this.raf = requestAnimationFrame(this.frame)
         return
       }
@@ -92,10 +86,43 @@ export default {
       ctx.imageSmoothingEnabled = block < 3
       ctx.drawImage(small, 0, 0, W, H)
       ctx.filter = 'none'
-      ctx.globalAlpha = Math.pow(1 - e, 1.6) * 0.95; ctx.imageSmoothingEnabled = false
-      ctx.drawImage(noise, 0, 0, W, H); ctx.globalAlpha = 1
+      this.fade ??= document.createElement('canvas')
+      this.fade.width = W; this.fade.height = H
+      this.drawAurora(this.fade.getContext('2d'), W, H, now)
+      ctx.globalAlpha = Math.pow(1 - e, 1.6) * 0.9
+      ctx.drawImage(this.fade, 0, 0, W, H); ctx.globalAlpha = 1
       if (t < 1) this.raf = requestAnimationFrame(this.frame)
       else this.finish()
+    },
+    /** Slow drifting colour clouds: calm to look at, no per-frame flicker. */
+    drawAurora(ctx, W, H, now) {
+      if (!this.hues) {
+        const cs = getComputedStyle(document.documentElement)
+        this.hues = ['--plasma-1', '--plasma-2', '--plasma-3'].map((k) => cs.getPropertyValue(k).trim() || '#e8683a')
+        this.base = cs.getPropertyValue('--color-surface').trim() || '#161212'
+      }
+      const t = reduceMotion() ? 0 : (now - (this.t0 || 0)) / 1000
+      ctx.globalCompositeOperation = 'source-over'
+      ctx.fillStyle = this.base
+      ctx.fillRect(0, 0, W, H)
+      const R = Math.max(W, H) * 0.62
+      this.hues.forEach((c, i) => {
+        const x = W * (0.5 + 0.32 * Math.sin(t * 0.35 + i * 2.1))
+        const y = H * (0.5 + 0.32 * Math.cos(t * 0.28 + i * 1.7))
+        const g = ctx.createRadialGradient(x, y, 0, x, y, R)
+        g.addColorStop(0, c)
+        g.addColorStop(1, 'transparent')
+        ctx.globalAlpha = 0.55
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, W, H)
+      })
+      ctx.globalAlpha = 1
+      // a soft light band sweeping across, one pass every ~3.5 s
+      const sw = ((t % 3.5) / 3.5) * 1.6 - 0.3
+      const bg = ctx.createLinearGradient(W * (sw - 0.25), 0, W * (sw + 0.25), H * 0.4)
+      bg.addColorStop(0, 'rgba(255,255,255,0)'); bg.addColorStop(0.5, 'rgba(255,255,255,0.10)'); bg.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = bg
+      ctx.fillRect(0, 0, W, H)
     },
     drawCover(ctx, img, W, H) {
       const s = Math.max(W / img.width, H / img.height)

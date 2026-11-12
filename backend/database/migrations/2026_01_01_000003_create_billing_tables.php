@@ -32,7 +32,7 @@ return new class extends Migration
         Schema::create('generations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('kind', 16); // image | video | tool
+            $table->string('kind', 16); // image | video | song | tool
             $table->foreignId('ai_model_id')->nullable()->constrained('ai_models')->nullOnDelete();
             $table->foreignId('photoset_id')->nullable()->constrained()->nullOnDelete();
             $table->string('tool', 32)->nullable();

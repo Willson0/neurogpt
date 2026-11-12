@@ -44,6 +44,6 @@ export default {
     },
   },
   mounted() { this.app.loadHistory() },
-  methods: { icon: (t) => (t.type === 'spend' && /чат/i.test(t.title) ? 'text' : ICONS[t.type] || 'image') },
+  methods: { icon: (t) => (t.type === 'spend' && /песн/i.test(t.title) ? 'music' : ICONS[t.type] || 'image') },
 }
 </script>

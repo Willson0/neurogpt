@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\ProviderUnavailable;
 use App\Models\Generation;
 use App\Models\User;
 use App\Services\Billing\Wallet;
@@ -65,20 +66,21 @@ class RunGeneration implements ShouldQueue
 
     private function fail(Generation $g, Throwable $e): void
     {
+        $unavailable = $e instanceof ProviderUnavailable;
         $filtered = $e instanceof RequestException
             && preg_match('/content_policy|safety|moderation/i', (string) $e->response?->body());
 
         Log::warning('Generation failed', ['id' => $g->id, 'error' => $e->getMessage()]);
 
-        DB::transaction(function () use ($g, $filtered) {
+        DB::transaction(function () use ($g, $filtered, $unavailable) {
             $locked = Generation::query()->whereKey($g->id)->lockForUpdate()->first();
             if (! $locked || $locked->status === 'failed') {
                 return;
             }
-            $locked->update(['status' => 'failed', 'error' => $filtered ? 'content_filtered' : 'failed', 'finished_at' => now()]);
+            $locked->update(['status' => 'failed', 'error' => $filtered ? 'content_filtered' : ($unavailable ? 'unavailable' : 'failed'), 'finished_at' => now()]);
             app(Wallet::class)->credit(
                 User::findOrFail($locked->user_id), $locked->cost, 'refund', 'Возврат',
-                ['generation_id' => $locked->id], $filtered ? 'Запрос не прошёл фильтр' : 'Модель перегружена',
+                ['generation_id' => $locked->id], $filtered ? 'Запрос не прошёл фильтр' : ($unavailable ? 'Генерация пока недоступна' : 'Модель перегружена'),
             );
         });
     }
@@ -90,6 +92,7 @@ class RunGeneration implements ShouldQueue
         $name = 'result.'.$ext;
 
         $sent = match (true) {
+            in_array($ext, ['mp3', 'wav', 'ogg', 'm4a'], true) => $bot->sendAudio($chatId, $bytes, $name, $caption),
             in_array($ext, ['mp4', 'mov', 'webm'], true) => $bot->sendVideo($chatId, $bytes, $name, $caption),
             in_array($ext, ['png', 'jpg', 'jpeg', 'webp'], true) && strlen($bytes) < 9_500_000 => $bot->sendPhoto($chatId, $bytes, $name, $caption),
             default => $bot->sendDocument($chatId, $bytes, $name, $caption),

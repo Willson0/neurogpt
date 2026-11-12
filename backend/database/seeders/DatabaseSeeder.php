@@ -16,7 +16,10 @@ class DatabaseSeeder extends Seeder
         // provider_model is the id on the provider's side; replace it with the models you plug in.
         $text = config('neurogpt.providers.openai.text_model');
         $image = config('neurogpt.providers.openai.image_model');
+        $songModel = config('neurogpt.providers.song_model');
+        $songDriver = $songModel ? 'replicate' : 'unavailable';
         $models = [
+            // Text now lives in the bot chat; these rows stay for the bot.
             'text' => [
                 ['auto', 'Авто', 'Сама выберет лучшую модель', 1, 'Советуем', true, 'free', $text],
                 ['fast', 'Быстрая', 'Короткие ответы за секунду', 1, 'Бесплатно', true, 'free', $text],
@@ -29,6 +32,12 @@ class DatabaseSeeder extends Seeder
                 ['detail', 'Детальная', 'Мелкие детали и текст на картинке', 12, 'New', false, 'free', $image],
                 ['photo', 'Фотореализм', 'Как настоящая фотография', 16, null, false, 'plus', $image],
             ],
+            // Songs: price is for 30 seconds (60 s = x2, 120 s = x4). Without REPLICATE_SONG_MODEL the button refunds and explains.
+            'song' => [
+                ['auto', 'Авто', 'Сама выберет лучшую модель', 30, 'Советуем', false, 'free', $songModel],
+                ['quick', 'Быстрая', 'Набросок мелодии за минуту', 20, null, true, 'free', $songModel],
+                ['studio', 'Студия', 'Богаче звук и аранжировка', 50, null, false, 'plus', $songModel],
+            ],
             'video' => [
                 ['auto', 'Авто', 'Сама выберет лучшую модель', 60, 'Советуем', false, 'pro', null],
                 ['clip', 'Клип', 'Короткие ролики для сторис', 40, null, true, 'pro', null],
@@ -40,7 +49,7 @@ class DatabaseSeeder extends Seeder
             foreach ($list as $i => [$slug, $name, $hint, $price, $badge, $fast, $min, $remote]) {
                 AiModel::updateOrCreate(['kind' => $kind, 'slug' => $slug], [
                     'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast,
-                    'min_plan' => $min, 'driver' => $driver, 'provider_model' => $remote, 'sort' => $i,
+                    'min_plan' => $min, 'driver' => $kind === 'song' ? $songDriver : $driver, 'provider_model' => $remote, 'sort' => $i,
                 ]);
             }
         }

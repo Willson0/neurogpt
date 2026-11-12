@@ -65,7 +65,8 @@ return [
     /*
      | Generation providers. A model row points to a driver by name.
      | openai    : any OpenAI-compatible API (OpenAI, OpenRouter, a self-hosted gateway)
-     | replicate : Replicate predictions API (video, upscale, background removal)
+     | replicate : Replicate predictions API (video, songs, upscale, background removal)
+     | unavailable: no provider yet, the job fails and tokens are refunded
      | fake      : placeholders for local development, no network
      */
     'providers' => [
@@ -84,8 +85,13 @@ return [
             'base_url' => env('REPLICATE_BASE_URL', 'https://api.replicate.com/v1'),
             'api_token' => env('REPLICATE_API_TOKEN'),
             'timeout' => (int) env('REPLICATE_TIMEOUT', 600),
+            // Songs: input field names of the chosen music model (they differ between models).
+            'song_prompt_field' => env('REPLICATE_SONG_PROMPT_FIELD', 'prompt'),
+            'song_duration_field' => env('REPLICATE_SONG_DURATION_FIELD', 'duration'),
         ],
         'default' => env('GENERATION_DRIVER', 'fake'),
+        // Songs have their own driver: "replicate" once REPLICATE_SONG_MODEL is set, otherwise "unavailable" (refund + clear error).
+        'song_model' => env('REPLICATE_SONG_MODEL'),
     ],
 
     'upload_max_kb' => 10240,

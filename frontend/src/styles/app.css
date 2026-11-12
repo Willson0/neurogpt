@@ -264,23 +264,14 @@ svg { display: block; flex-shrink: 0; }
 .ghostbtn.danger { color: var(--color-danger); }
 
 /* Chat */
-.chat { display: grid; gap: var(--space-sm); }
-.msg { max-width: 86%; padding: var(--space-xs) var(--space-sm); border-radius: 20px; font-size: var(--text-2); line-height: 1.45; animation: msgin 260ms var(--ease-out); }
 @keyframes msgin { from { opacity: 0; transform: translateY(10px) scale(0.97); } }
-.msg.me { justify-self: end; background: var(--color-cta); color: var(--color-cta-ink); border-bottom-right-radius: 6px; transform-origin: right bottom; }
-.msg.bot { justify-self: start; border-bottom-left-radius: 6px; transform-origin: left bottom; }
 .think { background: linear-gradient(90deg, var(--color-muted) 30%, var(--color-ink) 50%, var(--color-muted) 70%); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: thinkshim 1.2s linear infinite; }
 @keyframes thinkshim { from { background-position: 100% 0; } to { background-position: -50% 0; } }
-.msg-meta { display: flex; align-items: center; gap: var(--space-2xs); color: var(--color-muted); font-size: var(--text-cap); padding-inline: var(--space-2xs); animation: msgin 260ms var(--ease-out); }
-.msg-meta .spent { margin-right: auto; display: inline-flex; align-items: center; gap: var(--space-2xs); }
 .icon-btn { border: 0; background: transparent; width: 36px; height: 36px; border-radius: var(--radius-pill); display: grid; place-items: center; color: var(--color-muted); transition: transform var(--dur-micro) var(--ease-out), color var(--dur-micro) var(--ease-out); }
 .icon-btn:hover { color: var(--color-ink); }
 .icon-btn:active { transform: scale(0.88); }
 .icon-btn[aria-pressed="true"] { color: var(--color-accent); }
 .cursor { display: inline-block; width: 0.45em; height: 1em; vertical-align: -0.15em; background: var(--color-accent); border-radius: 2px; }
-.composer { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-sm); border-radius: var(--radius-pill); }
-.composer input { flex: 1; min-width: 0; border: 0; background: transparent; min-height: 44px; outline: none; }
-.composer input::placeholder { color: var(--color-muted); opacity: 0.4; }
 .send { width: 44px; height: 44px; border: 0; border-radius: var(--radius-pill); background: var(--color-cta); color: var(--color-cta-ink); display: grid; place-items: center; transition: transform var(--dur-micro) var(--ease-out); }
 .send:active { transform: scale(0.9); }
 
@@ -289,7 +280,7 @@ svg { display: block; flex-shrink: 0; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .stage .step { position: absolute; left: var(--space-sm); bottom: var(--space-sm); padding: var(--space-2xs) var(--space-sm); border-radius: var(--radius-pill); font-size: var(--text-cap); font-weight: 600; background: var(--color-island); color: var(--color-island-ink); display: inline-flex; align-items: center; gap: var(--space-xs); transition: opacity var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out); }
 .js .stage .step.gone { opacity: 0; transform: translateY(8px); }
-.stage .scan { position: absolute; left: 0; right: 0; height: 30%; top: 0; background: linear-gradient(transparent, color-mix(in oklab, var(--plasma-3) 22%, transparent), transparent); mix-blend-mode: screen; animation: scan 1.4s linear infinite; pointer-events: none; }
+.stage .scan { position: absolute; left: 0; right: 0; height: 30%; top: 0; background: linear-gradient(transparent, color-mix(in oklab, var(--plasma-3) 10%, transparent), transparent); mix-blend-mode: screen; animation: scan 4s ease-in-out infinite; pointer-events: none; }
 @keyframes scan { from { transform: translateY(-100%); } to { transform: translateY(340%); } }
 .stage.done .scan { display: none; }
 .stage.done { animation: settle 500ms var(--ease-pop); }

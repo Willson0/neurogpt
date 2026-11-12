@@ -53,6 +53,11 @@ class Bot
         return $this->call('sendVideo', array_filter(['chat_id' => $chatId, 'caption' => $caption]), ['video' => [$filename, $contents]]);
     }
 
+    public function sendAudio(int $chatId, string $contents, string $filename, ?string $caption = null): ?array
+    {
+        return $this->call('sendAudio', array_filter(['chat_id' => $chatId, 'caption' => $caption]), ['audio' => [$filename, $contents]]);
+    }
+
     public function sendDocument(int $chatId, string $contents, string $filename, ?string $caption = null): ?array
     {
         return $this->call('sendDocument', array_filter(['chat_id' => $chatId, 'caption' => $caption]), ['document' => [$filename, $contents]]);

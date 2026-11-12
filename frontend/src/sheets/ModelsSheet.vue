@@ -26,7 +26,7 @@ export default {
   name: 'ModelsSheet',
   computed: {
     app() { return useApp() },
-    kind() { return this.app.current === 'chat' ? 'text' : this.app.mode === 'tools' ? 'image' : this.app.mode },
+    kind() { return this.app.mode === 'tools' ? 'image' : this.app.mode },
     list() { return this.app.models[this.kind] || [] },
     selected() { return this.app.modelSel[this.kind] },
   },

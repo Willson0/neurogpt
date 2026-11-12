@@ -19,7 +19,7 @@ class BootstrapController extends Controller
 
         return response()->json([
             'user' => new UserResource($user),
-            'models' => AiModel::active()->whereIn('kind', ['text', 'image', 'video'])->get()
+            'models' => AiModel::active()->whereIn('kind', ['image', 'video', 'song'])->get()
                 ->groupBy('kind')
                 ->map(fn ($list) => $list->map(fn ($m) => [
                     'id' => $m->slug, 'name' => $m->name, 'hint' => $m->hint, 'price' => $m->price,

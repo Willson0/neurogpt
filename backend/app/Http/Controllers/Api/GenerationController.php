@@ -32,17 +32,18 @@ class GenerationController extends Controller
     public function store(Request $request, GenerationService $service)
     {
         $data = $request->validate([
-            'kind' => ['required', Rule::in(['image', 'video', 'tool'])],
+            'kind' => ['required', Rule::in(['image', 'video', 'song', 'tool'])],
             'model' => ['nullable', 'string', 'max:32'],
             'prompt' => ['nullable', 'string', 'max:4000'],
             'photoset_id' => ['nullable', 'integer', 'exists:photosets,id'],
             'tool' => ['required_if:kind,tool', 'nullable', Rule::in(array_keys(config('neurogpt.tools')))],
             'format' => ['nullable', Rule::in(['1:1', '9:16', '16:9'])],
-            'duration' => ['nullable', Rule::in([5, 10])],
+            'duration' => ['nullable', Rule::in($request->input('kind') === 'song' ? [30, 60, 120] : [5, 10])],
             'count' => ['nullable', 'integer', 'between:1,4'],
             'style' => ['nullable', 'string', 'max:32'],
             'negative' => ['nullable', 'string', 'max:500'],
             'seed' => ['nullable', 'integer', 'min:0'],
+            'source_generation_id' => ['nullable', 'integer'],
             'file' => ['nullable', 'file', 'max:'.config('neurogpt.upload_max_kb'), 'mimetypes:image/jpeg,image/png,image/webp'],
         ]);
 
@@ -50,7 +51,7 @@ class GenerationController extends Controller
         if ($needsPrompt && trim((string) ($data['prompt'] ?? '')) === '') {
             return response()->json(['message' => 'Prompt is required', 'errors' => ['prompt' => ['Напишите запрос']]], 422);
         }
-        if ($data['kind'] === 'tool' && ! $request->hasFile('file')) {
+        if ($data['kind'] === 'tool' && ! $request->hasFile('file') && empty($data['source_generation_id'])) {
             return response()->json(['message' => 'File is required', 'errors' => ['file' => ['Сначала выберите фото']]], 422);
         }
         if (! empty($data['photoset_id']) && ! $request->hasFile('file')) {

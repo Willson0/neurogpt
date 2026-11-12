@@ -11,7 +11,7 @@
         <span :class="['lbl', ctaOpen && short ? 'short' : '']">
           <template v-if="app.current === 'home' && hasPrompt && app.mode !== 'tools'">
             <template v-if="short">Пополнить</template>
-            <template v-else>{{ app.mode === 'text' ? 'Спросить' : 'Создать' }}<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
+            <template v-else>Создать<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
           </template>
           <template v-else-if="emptyGallery">Создать первую</template>
           <template v-else>Создать</template>
@@ -27,11 +27,6 @@
       <button v-if="foot && foot.sec" type="button" :class="['ghostbtn', foot.secDanger ? 'danger' : '']" @click="foot.onSec()">{{ foot.sec }}</button>
     </div>
 
-    <form v-if="app.current === 'chat'" class="composer glass" @submit.prevent="send">
-      <label for="chatInput" class="visually-hidden">Сообщение</label>
-      <input id="chatInput" v-model="text" name="message" autocomplete="off" :placeholder="`Сообщение, ${app.textModel.price} ${app.textModel.price === 1 ? 'токен' : 'токена'}`">
-      <button type="submit" class="send" aria-label="Отправить" :disabled="app.chat.busy"><svg class="ic-s" aria-hidden="true"><use href="#i-send" /></svg></button>
-    </form>
   </div>
 </template>
 
@@ -46,7 +41,7 @@ const ROOT = ['home', 'gallery', 'profile']
 export default {
   name: 'BottomBar',
   components: { LensBar },
-  data: () => ({ text: '', tabs: [
+  data: () => ({ tabs: [
     { id: 'home', icon: 'home', label: 'Главная' },
     { id: 'gallery', icon: 'image', label: 'Фотосеты' },
     { id: 'profile', icon: 'user', label: 'Профиль' },
@@ -115,7 +110,6 @@ export default {
     onCta() {
       const a = this.app
       if (a.current === 'home' && this.ctaOpen) {
-        if (a.mode === 'text') return this.askText()
         return a.start()
       }
       if (this.emptyGallery) { a.goTab('home'); return }
@@ -123,24 +117,11 @@ export default {
       if (a.current !== 'home') a.goTab('home')
       setTimeout(() => { document.getElementById('prompt')?.focus({ preventScroll: true }); a.kick(0.8) }, 260)
     },
-    askText() {
-      const a = this.app
-      const q = a.prompt.trim()
-      a.openChat()
-      a.prompt = ''
-      this.$nextTick(() => a.sendMessage(q))
-    },
     again() {
       const a = this.app
       if (a.gen?.photoset) return a.toast('Выберите фотосет ещё раз')
       a.stack = ['home']; a.tab = 'home'
       a.start()
-    },
-    send() {
-      const v = this.text.trim()
-      if (!v) return
-      this.text = ''
-      this.app.sendMessage(v)
     },
   },
 }

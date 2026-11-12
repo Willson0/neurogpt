@@ -33,7 +33,6 @@ import FxLayer from './components/FxLayer.vue'
 import Sticker from './components/Sticker.vue'
 import SheetHost from './sheets/SheetHost.vue'
 import HomeView from './views/HomeView.vue'
-import ChatView from './views/ChatView.vue'
 import CreateView from './views/CreateView.vue'
 import GalleryView from './views/GalleryView.vue'
 import ProfileView from './views/ProfileView.vue'
@@ -45,7 +44,7 @@ export default {
   name: 'App',
   components: {
     PlasmaCanvas, BottomBar, Toast, FxLayer, Sticker, SheetHost,
-    home: HomeView, chat: ChatView, create: CreateView, gallery: GalleryView, profile: ProfileView,
+    home: HomeView, create: CreateView, gallery: GalleryView, profile: ProfileView,
     history: HistoryView, topup: TopupView, plans: PlansView,
   },
   computed: {

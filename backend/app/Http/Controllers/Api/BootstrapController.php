@@ -54,6 +54,7 @@ class BootstrapController extends Controller
             ])->values(),
             'styles' => collect(config('neurogpt.styles'))->map(fn ($s, $id) => ['id' => $id, 'name' => $s['name']])->values(),
             'bonus' => config('neurogpt.bonus'),
+            'theme' => config('neurogpt.theme'),
             'features' => ['songs' => $songs],
             'payments' => $methods,
             'limits' => ['upload_mb' => (int) floor(config('neurogpt.upload_max_kb') / 1024)],

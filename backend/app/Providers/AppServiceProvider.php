@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\Admin\Settings;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -18,6 +19,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         JsonResource::withoutWrapping();
+        // Values saved in the admin panel win over config/neurogpt.php and .env.
+        Settings::apply();
 
         $perUser = fn (int $perMinute) => fn (Request $r) => Limit::perMinute($perMinute)->by($r->user()?->id ?: $r->ip());
         $perIp = fn (int $perMinute) => fn (Request $r) => Limit::perMinute($perMinute)->by('ip:'.$r->ip());

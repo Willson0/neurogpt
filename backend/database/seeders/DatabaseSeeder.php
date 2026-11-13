@@ -8,11 +8,30 @@ use App\Models\Photoset;
 use Illuminate\Database\Seeder;
 
 /**
- * The catalog: models, tools, photosets, news. Safe to run on every start; it follows
- * config/neurogpt.php and .env, so prices and providers are changed there, not in the database.
+ * The catalog: models, tools, photosets, news. Safe to run on every start. It fills the database from
+ * config/neurogpt.php and .env, but never overwrites a row the admin has edited in the panel (edited_at)
+ * and never brings back a row the admin deleted.
  */
 class DatabaseSeeder extends Seeder
 {
+    /** Creates or refreshes a catalog row unless the admin owns it by now. */
+    private function sync(string $class, array $key, array $attrs, string $tag): void
+    {
+        if (in_array($tag, (array) config('neurogpt.deleted'), true)) {
+            return;
+        }
+        $row = $class::where($key)->first();
+        if ($row?->edited_at) {
+            // An edited row keeps its values. Only a placeholder driver follows .env, e.g. once KIE_API_KEY appears.
+            if (isset($attrs['driver']) && in_array($row->driver, ['fake', 'unavailable'], true) && $row->driver !== $attrs['driver']) {
+                $row->update(['driver' => $attrs['driver'], 'provider_model' => $attrs['provider_model'] ?? $row->provider_model]);
+            }
+
+            return;
+        }
+        $class::updateOrCreate($key, $attrs);
+    }
+
     public function run(): void
     {
         $driver = config('neurogpt.providers.default');
@@ -37,10 +56,10 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($models as $kind => $list) {
             foreach ($list as $i => [$slug, $name, $hint, $price, $badge, $fast, $min, $remote]) {
-                AiModel::updateOrCreate(['kind' => $kind, 'slug' => $slug], [
+                $this->sync(AiModel::class, ['kind' => $kind, 'slug' => $slug], [
                     'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast,
                     'min_plan' => $min, 'driver' => $driver, 'provider_model' => $remote, 'sort' => $i, 'is_active' => true,
-                ]);
+                ], "model:$kind:$slug");
             }
         }
 
@@ -48,15 +67,15 @@ class DatabaseSeeder extends Seeder
         $video = config('neurogpt.video');
         $sort = 0;
         foreach ($video as $slug => $m) {
-            AiModel::updateOrCreate(['kind' => 'video', 'slug' => $slug], [
+            $this->sync(AiModel::class, ['kind' => 'video', 'slug' => $slug], [
                 'name' => $m['name'], 'hint' => $m['hint'], 'price' => $m['price'], 'badge' => $m['badge'] ?? null,
                 'is_fast' => $m['fast'] ?? false, 'min_plan' => $m['min_plan'], 'driver' => $kieDriver,
                 'provider_model' => $m['provider_model'], 'sort' => $sort++, 'is_active' => true,
                 'options' => array_intersect_key($m, array_flip(['family', 'tier', 'mode', 'resolution', 'durations', 'formats'])),
-            ]);
+            ], "model:video:$slug");
         }
         // Models of the previous catalog are switched off, their history stays.
-        AiModel::where('kind', 'video')->whereNotIn('slug', array_keys($video))->update(['is_active' => false]);
+        AiModel::where('kind', 'video')->whereNull('edited_at')->whereNotIn('slug', array_keys($video))->update(['is_active' => false]);
 
         // ---- songs: hidden behind "Coming soon" until FEATURE_SONGS=true and a music model is set ----
         $songModel = config('neurogpt.providers.song_model');
@@ -65,11 +84,11 @@ class DatabaseSeeder extends Seeder
             ['quick', 'Быстрая', 'Набросок мелодии за минуту', 20, null, true, 'free'],
             ['studio', 'Студия', 'Богаче звук и аранжировка', 50, null, false, 'plus'],
         ] as $i => [$slug, $name, $hint, $price, $badge, $fast, $min]) {
-            AiModel::updateOrCreate(['kind' => 'song', 'slug' => $slug], [
+            $this->sync(AiModel::class, ['kind' => 'song', 'slug' => $slug], [
                 'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast, 'min_plan' => $min,
                 'driver' => $songModel ? 'replicate' : 'unavailable', 'provider_model' => $songModel, 'sort' => $i,
                 'is_active' => (bool) config('neurogpt.features.songs'),
-            ]);
+            ], "model:song:$slug");
         }
 
         // ---- tools of the "Ещё" tab ----
@@ -77,7 +96,7 @@ class DatabaseSeeder extends Seeder
         foreach (config('neurogpt.tools') as $slug => $t) {
             $viaKie = $t['driver'] === 'kie' && $kieDriver !== 'unavailable';
             $video = ($t['output'] ?? null) === 'video';
-            AiModel::updateOrCreate(['kind' => 'tool', 'slug' => $slug], [
+            $this->sync(AiModel::class, ['kind' => 'tool', 'slug' => $slug], [
                 'name' => $t['name'], 'hint' => $t['hint'], 'price' => $t['cost'], 'sort' => $sort++,
                 // Without a kie.ai key, upscale and background removal fall back to the image model and its prompt.
                 'driver' => $viaKie ? $kieDriver : $driver,
@@ -85,9 +104,9 @@ class DatabaseSeeder extends Seeder
                 'options' => $viaKie ? array_intersect_key($t, array_flip(['family', 'tier', 'resolution', 'duration', 'factor'])) : null,
                 // A video tool cannot fall back to an image model.
                 'is_active' => $viaKie || ! $video,
-            ]);
+            ], "model:tool:$slug");
         }
-        AiModel::where('kind', 'tool')->whereNotIn('slug', array_keys(config('neurogpt.tools')))->update(['is_active' => false]);
+        AiModel::where('kind', 'tool')->whereNull('edited_at')->whereNotIn('slug', array_keys(config('neurogpt.tools')))->update(['is_active' => false]);
 
         // ---- photosets: a ready idea applied to the user's own photo ----
         $keep = 'Use the attached photo as the only reference for the person. Keep the face fully recognizable: same facial features, face shape, skin tone, eye color, hair color and hairstyle, same apparent age and gender. One person in the frame unless the photo shows several. No text, no watermarks, no extra limbs or fingers.';
@@ -114,12 +133,12 @@ class DatabaseSeeder extends Seeder
                 'Paint the animal from the attached photo as a delicate watercolor illustration: soft washes, visible paper texture, light airy background, gentle color bleeding around the edges. Keep the animal recognizable: same breed, coat color, markings and pose. No text, no watermarks.', 'Фото питомца'],
         ];
         foreach ($sets as $i => [$name, $seed, $pal, $desc, $prompt, $hint]) {
-            Photoset::updateOrCreate(['name' => $name], [
+            $this->sync(Photoset::class, ['name' => $name], [
                 'seed' => $seed, 'palette' => $pal, 'description' => $desc, 'prompt' => $prompt,
                 'is_trending' => $hint !== null, 'trend_hint' => $hint, 'sort' => $i, 'is_active' => true,
-            ]);
+            ], "photoset:$name");
         }
-        Photoset::whereNotIn('name', array_column($sets, 0))->whereNull('cover_url')->update(['is_active' => false]);
+        Photoset::whereNotIn('name', array_column($sets, 0))->whereNull('edited_at')->whereNull('cover_url')->update(['is_active' => false]);
 
         // ---- news cards on the home screen ----
         $news = [
@@ -128,8 +147,8 @@ class DatabaseSeeder extends Seeder
             ['1 500 токенов выгоднее', 'Скидка 20% на большой пакет', 'moneybag', 'ink', 'topup'],
         ];
         foreach ($news as $i => [$title, $sub, $stk, $style, $action]) {
-            News::updateOrCreate(['title' => $title], ['subtitle' => $sub, 'sticker' => $stk, 'style' => $style, 'action' => $action, 'sort' => $i, 'is_active' => true]);
+            $this->sync(News::class, ['title' => $title], ['subtitle' => $sub, 'sticker' => $stk, 'style' => $style, 'action' => $action, 'sort' => $i, 'is_active' => true], "news:$title");
         }
-        News::whereNotIn('title', array_column($news, 0))->update(['is_active' => false]);
+        News::whereNotIn('title', array_column($news, 0))->whereNull('edited_at')->update(['is_active' => false]);
     }
 }

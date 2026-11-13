@@ -28,6 +28,21 @@ class UserResolver
         return $this->upsert($data['user'], $data['start_param']);
     }
 
+    /**
+     * Browser sign-in through the Telegram Login Widget. Only admins may use it: everyone else opens the Mini App.
+     *
+     * @throws InvalidInitData
+     */
+    public function fromLoginWidget(string $raw): User
+    {
+        $data = LoginWidget::validate($raw);
+        if (! in_array((int) $data['user']['id'], array_map('intval', (array) config('neurogpt.admin_ids')), true)) {
+            throw new InvalidInitData('Browser sign-in is for admins only');
+        }
+
+        return $this->upsert($data['user']);
+    }
+
     /** Telegram id of the inviter from a start parameter: friend_<id> (ref_<id> is the old format). */
     public static function referrerFrom(?string $startParam): ?int
     {

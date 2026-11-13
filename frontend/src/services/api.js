@@ -11,8 +11,18 @@ export class ApiError extends Error {
   }
 }
 
+/** Browser sign-in of an admin (Telegram Login Widget), kept between visits. */
+export const webLogin = {
+  key: 'ng_login',
+  get() { try { return localStorage.getItem(this.key) } catch { return null } },
+  set(user) { try { localStorage.setItem(this.key, btoa(unescape(encodeURIComponent(JSON.stringify(user))))) } catch { /* private mode */ } },
+  clear() { try { localStorage.removeItem(this.key) } catch { /* private mode */ } },
+}
+
 function authHeader() {
   if (tg.initData) return 'tma ' + tg.initData
+  const login = webLogin.get()
+  if (login) return 'tgl ' + login
   const dev = import.meta.env.VITE_DEV_TELEGRAM_ID
   if (dev) return 'tma dev:' + dev
   return null
@@ -40,6 +50,15 @@ async function request(method, path, { json, form, query } = {}) {
   return data
 }
 
+/** A private file (needs the Authorization header), returned as an object URL for <img>. */
+async function blobUrl(path) {
+  const res = await fetch(BASE + path, { headers: { Authorization: authHeader() || '' } })
+  if (!res.ok) throw new ApiError(res.status, null)
+  return URL.createObjectURL(await res.blob())
+}
+
+const clean = (q) => Object.fromEntries(Object.entries(q || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined))
+
 export const api = {
   bootstrap: () => request('GET', '/bootstrap'),
   me: () => request('GET', '/me'),
@@ -59,4 +78,19 @@ export const api = {
   topup: (tokens, method) => request('POST', '/payments/topup', { json: { tokens, method } }),
   buyPlan: (plan, period, method) => request('POST', '/payments/plan', { json: { plan, period, method } }),
   payment: (id) => request('GET', `/payments/${id}`),
+  publicConfig: () => request('GET', '/config'),
+}
+
+/** The admin panel. Every call is checked on the server against the admin's Telegram id. */
+export const adminApi = {
+  stats: (q) => request('GET', '/admin/stats', { query: clean(q) }),
+  settings: () => request('GET', '/admin/settings'),
+  saveSettings: (values) => request('PUT', '/admin/settings', { json: { values } }),
+  list: (what, q) => request('GET', `/admin/${what}`, { query: clean(q) }),
+  create: (what, body) => request('POST', `/admin/${what}`, { json: body }),
+  update: (what, id, body, method = 'PATCH') => request(method, `/admin/${what}/${id}`, { json: body }),
+  remove: (what, id) => request('DELETE', `/admin/${what}/${id}`),
+  upload: (file) => { const form = new FormData(); form.append('file', file); return request('POST', '/admin/upload', { form }) },
+  input: (id) => blobUrl(`/admin/generations/${id}/input`),
+  balance: (id, amount, comment) => request('POST', `/admin/users/${id}/balance`, { json: { amount, comment } }),
 }

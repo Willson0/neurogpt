@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authorization: tma <initData>. The signature is checked on every request,
+ * Authorization: tma <initData> (or tgl <login widget data> for an admin in a browser). The signature is checked on every request,
  * so there are no tokens to leak or revoke.
  */
 class TelegramAuth
@@ -20,12 +20,15 @@ class TelegramAuth
     public function handle(Request $request, Closure $next): Response
     {
         $header = (string) $request->header('Authorization', '');
-        if (! str_starts_with($header, 'tma ')) {
+        if (! str_starts_with($header, 'tma ') && ! str_starts_with($header, 'tgl ')) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
         try {
-            $user = $this->resolver->fromInitData(substr($header, 4));
+            // "tma" is the Mini App's initData, "tgl" the Login Widget data of an admin in a browser.
+            $user = str_starts_with($header, 'tgl ')
+                ? $this->resolver->fromLoginWidget(substr($header, 4))
+                : $this->resolver->fromInitData(substr($header, 4));
         } catch (InvalidInitData $e) {
             return response()->json(['message' => 'Invalid Telegram data'], 401);
         }

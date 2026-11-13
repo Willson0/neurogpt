@@ -3,6 +3,7 @@ import { api, ApiError } from '../services/api'
 import { tg } from '../services/telegram'
 import { tok, plural, checkImage } from '../services/format'
 import { bus, confetti } from '../services/bus'
+import { theme } from '../services/theme'
 
 const ROOT = ['home', 'gallery', 'profile']
 const FORMATS = [
@@ -70,6 +71,7 @@ export const useApp = defineStore('app', {
     canGoBack: (s) => s.stack.length > 1,
     balance: (s) => s.user?.balance ?? 0,
     plan: (s) => s.user?.plan ?? 'free',
+    isAdmin: (s) => !!s.user?.is_admin,
     planName() { return this.plans[this.plan]?.name || 'Free' },
     /** Formats the current model supports: every one for pictures, the model's own list for video. */
     formats() {
@@ -138,6 +140,7 @@ export const useApp = defineStore('app', {
       this.limits = { upload_mb: 10, ...d.limits }
       this.supportUrl = d.support_url || null
       this.bonus = d.bonus
+      theme.apply(d.theme)
       this.recent = d.recent
       this.botUsername = d.bot_username || ''
       if (this.packIndex >= this.packs.length) this.packIndex = Math.min(1, this.packs.length - 1)
@@ -146,6 +149,10 @@ export const useApp = defineStore('app', {
         const open = this.models.video.filter((m) => !this.isLocked(m))
         this.modelSel.video = (open.find((m) => m.badge === 'Советуем') || open[0] || this.models.video[0])?.id || null
       }
+    },
+    /** After a change in the admin panel: the same data as on start, without the boot screen. */
+    async reloadCatalog() {
+      try { this.applyBootstrap(await api.bootstrap()) } catch { /* the next start picks it up */ }
     },
     setUser(u) { if (u) this.user = u },
     async refreshUser() {

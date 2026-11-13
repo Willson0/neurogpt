@@ -1,3 +1,4 @@
+import { theme } from './theme'
 /**
  * Thin wrapper over window.Telegram.WebApp. Every call is safe outside Telegram
  * (plain browser during development): it simply does nothing.
@@ -26,6 +27,7 @@ export const tg = {
     try { WebApp.disableVerticalSwipes?.() } catch { /* older clients */ }
     this.guardScroll()
     WebApp.onEvent('themeChanged', () => this.applyTheme())
+    document.addEventListener('ng-theme', () => this.applyTheme())
   },
 
   applyTheme() {
@@ -36,16 +38,17 @@ export const tg = {
     root.dataset.theme = scheme
     if (!WebApp) return
     try {
-      const hex = scheme === 'light' ? '#f8f5f2' : '#0d0b0a'
+      const hex = theme.value('--color-paper') || (scheme === 'light' ? '#f8f5f2' : '#0d0b0a')
       if (at('6.1')) { WebApp.setHeaderColor(hex); WebApp.setBackgroundColor(hex) }
       if (at('7.10')) WebApp.setBottomBarColor(hex)
     } catch { /* older clients */ }
   },
   /** Colors of the native bottom button, so it matches the in-app buttons in any client theme. */
   get cta() {
-    return document.documentElement.dataset.theme === 'light'
+    const base = document.documentElement.dataset.theme === 'light'
       ? { color: '#221d1a', textColor: '#faf8f6' }
       : { color: '#f7f4f0', textColor: '#1f1a17' }
+    return { color: theme.value('--color-cta') || base.color, textColor: theme.value('--color-cta-ink') || base.textColor }
   },
 
   /**

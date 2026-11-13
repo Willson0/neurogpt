@@ -8,6 +8,12 @@
       <h3>{{ unauthorized ? 'Откройте приложение из Telegram' : 'Нет соединения' }}</h3>
       <p>{{ unauthorized ? 'Нужна авторизация через Telegram, откройте бота и нажмите кнопку.' : 'Проверьте интернет и попробуйте ещё раз.' }}</p>
       <button v-if="!unauthorized" type="button" class="pill-btn" @click="app.boot()">Повторить</button>
+      <!-- A plain browser: the admin signs in with the Telegram Login Widget. -->
+      <div v-else-if="browser" class="adm-login">
+        <p>Администратор может войти через Telegram прямо в браузере.</p>
+        <div ref="login" />
+        <p v-if="loginError" class="err-text">{{ loginError }}</p>
+      </div>
     </div>
 
     <template v-else>
@@ -39,22 +45,30 @@ import ProfileView from './views/ProfileView.vue'
 import HistoryView from './views/HistoryView.vue'
 import TopupView from './views/TopupView.vue'
 import PlansView from './views/PlansView.vue'
+import AdminView from './views/AdminView.vue'
+import { api, webLogin } from './services/api'
+import { theme } from './services/theme'
 
 export default {
   name: 'App',
   components: {
     PlasmaCanvas, BottomBar, Toast, FxLayer, Sticker, SheetHost,
     home: HomeView, create: CreateView, gallery: GalleryView, profile: ProfileView,
-    history: HistoryView, topup: TopupView, plans: PlansView,
+    history: HistoryView, topup: TopupView, plans: PlansView, admin: AdminView,
   },
+  data: () => ({ loginError: '' }),
   computed: {
     app() { return useApp() },
     unauthorized() { return this.app.bootError?.status === 401 },
+    browser() { return !tg.initData },
   },
   watch: {
     'app.current'() { this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },
     'app.canGoBack': { immediate: true, handler() { this.syncBack() } },
     'app.sheet'() { this.syncBack() },
+    unauthorized(v) { if (v && this.browser) this.$nextTick(this.mountLogin) },
+    // a non-admin cannot stay on the admin screen, whatever put it on the stack
+    'app.current': { handler(v) { if (v === 'admin' && !this.app.isAdmin) this.app.goTab('profile') } },
   },
   mounted() {
     this.app.boot()
@@ -63,6 +77,25 @@ export default {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.app.sheet && this.app.canGoBack) this.app.back() })
   },
   methods: {
+    /** Telegram Login Widget. The server checks its signature and lets only the admin in. */
+    async mountLogin() {
+      const box = this.$refs.login
+      if (!box || box.childElementCount) return
+      if (webLogin.get()) { webLogin.clear(); this.loginError = 'Вход устарел или у этого аккаунта нет доступа. Войдите ещё раз.' }
+      let bot = ''
+      try { const cfg = await api.publicConfig(); bot = cfg.bot_username; theme.apply(cfg.theme) } catch { /* shown below */ }
+      if (!bot) { this.loginError = this.loginError || 'Вход через браузер не настроен: на сервере не задано имя бота.'; return }
+      window.ngTelegramLogin = (user) => { webLogin.set(user); this.loginError = ''; this.app.boot() }
+      const s = document.createElement('script')
+      s.async = true
+      s.src = 'https://telegram.org/js/telegram-widget.js?22'
+      s.dataset.telegramLogin = bot
+      s.dataset.size = 'large'
+      s.dataset.radius = '14'
+      s.dataset.requestAccess = 'write'
+      s.dataset.onauth = 'ngTelegramLogin(user)'
+      box.appendChild(s)
+    },
     syncBack() {
       tg.showBack(this.app.canGoBack || !!this.app.sheet, () => this.app.back())
     },

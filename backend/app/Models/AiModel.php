@@ -10,7 +10,7 @@ class AiModel extends Model
 
     protected $fillable = [
         'slug', 'kind', 'name', 'hint', 'price', 'badge', 'is_fast', 'min_plan', 'driver',
-        'provider_model', 'options', 'sort', 'is_active',
+        'provider_model', 'options', 'sort', 'is_active', 'edited_at',
     ];
 
     protected function casts(): array

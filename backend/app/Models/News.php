@@ -8,7 +8,7 @@ class News extends Model
 {
     protected $table = 'news';
 
-    protected $fillable = ['title', 'subtitle', 'sticker', 'style', 'action', 'sort', 'is_active', 'ends_at'];
+    protected $fillable = ['title', 'subtitle', 'sticker', 'style', 'action', 'sort', 'is_active', 'ends_at', 'edited_at'];
 
     protected function casts(): array
     {

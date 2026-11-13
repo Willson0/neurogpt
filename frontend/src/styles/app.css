@@ -549,3 +549,9 @@ svg { display: block; flex-shrink: 0; }
 }
 .row .t .badge { color: var(--color-accent); line-height: 1.3; }
 .row .t .badge.hot { color: var(--on-plasma); }
+/* a long file name (or any long word) must not widen the sheet */
+.sheet { grid-template-columns: minmax(0, 1fr); overflow-x: hidden; }
+.sheet > * { min-width: 0; }
+.psetfile { max-width: 100%; min-width: 0; overflow: hidden; }
+.psetfile span { flex: 0 1 auto; white-space: nowrap; }
+.sheet h3, .sheet .lead { overflow-wrap: anywhere; }

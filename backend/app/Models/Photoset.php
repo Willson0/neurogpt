@@ -8,7 +8,7 @@ class Photoset extends Model
 {
     protected $fillable = [
         'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending',
-        'trend_hint', 'sort', 'is_active',
+        'trend_hint', 'sort', 'is_active', 'edited_at',
     ];
 
     protected function casts(): array

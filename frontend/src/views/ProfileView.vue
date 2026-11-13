@@ -34,6 +34,13 @@
           <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
         </button>
       </li>
+      <li v-if="app.isAdmin">
+        <button type="button" class="row" @click="app.push('admin')">
+          <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-gear" /></svg></span>
+          <span class="t"><b>Админка</b></span>
+          <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
+        </button>
+      </li>
       <li v-if="support || app.supportUrl">
         <button type="button" class="row" @click="openSupport">
           <span class="sq"><svg class="ic-s" aria-hidden="true"><use href="#i-help" /></svg></span>

@@ -8,6 +8,9 @@ $kieDriver = $kieKey ? 'kie' : ($default === 'fake' ? 'fake' : 'unavailable');
 
 return [
 
+    // Telegram ids that may open the admin panel. Checked on the server for every /api/admin request.
+    'admin_ids' => [1337592809],
+
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         // Stored without "@", whatever was typed into .env.
@@ -17,6 +20,8 @@ return [
         'webapp_url' => env('TELEGRAM_WEBAPP_URL', env('APP_URL')),
         // How long initData is accepted after auth_date, in seconds.
         'init_data_ttl' => (int) env('TELEGRAM_INIT_DATA_TTL', 86400),
+        // Browser sign-in for the admin (Telegram Login Widget): how long one sign-in stays valid, in seconds.
+        'login_ttl' => (int) env('TELEGRAM_LOGIN_TTL', 30 * 86400),
         // Local development only: lets the SPA run in a plain browser.
         'allow_dev_auth' => (bool) env('TELEGRAM_ALLOW_DEV_AUTH', false),
         // Shown by /paysupport and in the profile ("Помощь"): https://t.me/your_support
@@ -260,4 +265,7 @@ return [
     ],
 
     'upload_max_kb' => 10240,
+
+    // Color overrides set in the admin panel: ['dark' => ['--color-accent' => '#ff8a3d'], 'light' => [...]].
+    'theme' => ['dark' => [], 'light' => []],
 ];

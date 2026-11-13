@@ -11,7 +11,7 @@
           <div class="top"><span class="name">{{ info.name }}</span><Sticker :name="meta.sticker" :size="64" :glow="app.tier !== 'free'" glow-color="--gold-hi" :sparkle="app.tier === 'pro'" /></div>
         </div>
         <div class="bottom-l">
-          <span v-if="info.month" class="price-l">{{ fmt(app.period === 'month' ? info.month : info.year_month) }} ₽<small>в месяц{{ app.period === 'year' ? ', при оплате за год' : '' }}</small></span>
+          <span v-if="info.month" class="price-l">{{ monthly }}<small>в месяц{{ app.period === 'year' ? ', при оплате за год' : '' }}</small></span>
           <span v-else class="price-l">Бесплатно<small>навсегда</small></span>
           <span class="line">{{ line }}<template v-if="app.plan === app.tier"><br>ваш тариф</template></span>
         </div>
@@ -25,6 +25,8 @@
     <ul class="feat glass">
       <li v-for="(f, k) in meta.feats" :key="app.tier + k" :style="{ '--i': k }"><svg aria-hidden="true"><use href="#i-check" /></svg>{{ f }}</li>
     </ul>
+
+    <PayMethod v-if="app.tier !== 'free'" />
 
     <div v-if="app.payment && app.payment.purpose === 'plan'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
@@ -40,21 +42,26 @@ import { fmt, reduceMotion } from '../services/format'
 import { tg } from '../services/telegram'
 import LensBar from '../components/LensBar.vue'
 import Sticker from '../components/Sticker.vue'
+import PayMethod from '../components/PayMethod.vue'
 
 const META = {
-  free: { sticker: 'sparkles', feats: ['Базовый чат и одна модель картинок', 'Ежедневный бонус токенов', 'Общая очередь'] },
-  plus: { sticker: 'gem', feats: ['Все текстовые модели и картинки', 'Фотореализм и документы', 'Файлы и голосовые в чате'] },
-  pro: { sticker: 'crown', feats: ['Всё из Plus, плюс видео', 'Приоритет в очереди', 'Ранний доступ к новым моделям'] },
+  free: { sticker: 'sparkles', feats: ['Базовые модели картинок и видео', 'Ежедневный бонус токенов', 'Общая очередь'] },
+  plus: { sticker: 'gem', feats: ['Токены сразу на баланс, не сгорают', 'Фотореализм, Veo 3.1 Fast и Kling 3.0', 'Токены дешевле, чем в пакетах'] },
+  pro: { sticker: 'crown', feats: ['Всё из Plus и больше токенов', 'Veo 3.1 Quality в 1080p', 'Приоритет в очереди'] },
 }
 
 export default {
   name: 'PlansView',
-  components: { LensBar, Sticker },
+  components: { LensBar, Sticker, PayMethod },
   data: () => ({ tilt: {}, tiers: ['free', 'plus', 'pro'] }),
   computed: {
     app() { return useApp() },
     info() { return this.app.plans[this.app.tier] || { name: '', month: 0, year_month: 0, tokens: 0 } },
     meta() { return META[this.app.tier] },
+    monthly() {
+      const i = this.info, year = this.app.period === 'year'
+      return this.app.priceLabel(year ? i.year_month : i.month, year ? Math.round(i.stars_year / 12) : i.stars_month)
+    },
     line() { return this.info.tokens ? `${fmt(this.info.tokens)} токенов в месяц` : 'Бонус каждый день' },
   },
   methods: {

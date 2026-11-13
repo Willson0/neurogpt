@@ -16,50 +16,36 @@ export const tg = {
   get platform() { return WebApp?.platform || 'web' },
   get hasMainButton() { return !!WebApp?.initData && at('6.1') },
   get hasSecondaryButton() { return !!WebApp?.initData && at('7.10') },
+  get canInvoice() { return !!WebApp?.initData && at('6.1') },
 
   init() {
+    this.applyTheme()
     if (!WebApp) return
     WebApp.ready()
     WebApp.expand()
     try { WebApp.disableVerticalSwipes?.() } catch { /* older clients */ }
     this.guardScroll()
-    this.applyTheme()
     WebApp.onEvent('themeChanged', () => this.applyTheme())
   },
 
-  /** Telegram colors drive the surfaces; the warm accent stays ours. */
   applyTheme() {
+    // Only light or dark is taken from Telegram. The palette stays ours: client themes (Telegram Desktop
+    // on Windows above all) bring their own button and text colors, and those clash with the warm design.
     const root = document.documentElement
     const scheme = WebApp?.colorScheme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
     root.dataset.theme = scheme
-    const p = WebApp?.themeParams || {}
-    const set = (k, v) => v && root.style.setProperty(k, v)
-    // Dark stays our own deeper palette; Telegram's surfaces are only taken for the light scheme.
-    if (scheme === 'light') {
-      set('--color-page', p.secondary_bg_color || p.bg_color)
-      set('--color-paper', p.bg_color)
-      set('--color-surface', p.section_bg_color || p.secondary_bg_color)
-      set('--color-surface-2', p.secondary_bg_color)
-    } else {
-      for (const k of ['--color-page', '--color-paper', '--color-surface', '--color-surface-2']) root.style.removeProperty(k)
-    }
-    set('--color-ink', p.text_color)
-    set('--color-muted', p.hint_color)
-    set('--color-rule', p.section_separator_color)
-    set('--color-cta', p.button_color)
-    set('--color-cta-ink', p.button_text_color)
-    if (scheme === 'light' && (p.section_bg_color || p.secondary_bg_color)) {
-      set('--color-glass', `color-mix(in srgb, ${p.section_bg_color || p.secondary_bg_color} 72%, transparent)`)
-    }
     if (!WebApp) return
     try {
-      const hex = scheme === 'light' ? p.bg_color : '#0d0b0a'
-      if (at('6.1') && hex) {
-        WebApp.setHeaderColor(hex)
-        WebApp.setBackgroundColor(hex)
-      }
-      if (at('7.10') && hex) WebApp.setBottomBarColor(hex)
+      const hex = scheme === 'light' ? '#f8f5f2' : '#0d0b0a'
+      if (at('6.1')) { WebApp.setHeaderColor(hex); WebApp.setBackgroundColor(hex) }
+      if (at('7.10')) WebApp.setBottomBarColor(hex)
     } catch { /* older clients */ }
+  },
+  /** Colors of the native bottom button, so it matches the in-app buttons in any client theme. */
+  get cta() {
+    return document.documentElement.dataset.theme === 'light'
+      ? { color: '#221d1a', textColor: '#faf8f6' }
+      : { color: '#f7f4f0', textColor: '#1f1a17' }
   },
 
   /**
@@ -76,7 +62,7 @@ export const tg = {
     }, { passive: true })
     // a drag that starts outside any scroll area must not move the page at all
     document.addEventListener('touchmove', (e) => {
-      if (!e.target.closest?.('.scroll, .sheet, .trends, textarea, input')) e.preventDefault()
+      if (!e.target.closest?.('.scroll, .sheet, .trends, .filters, textarea, input')) e.preventDefault()
     }, { passive: false })
   },
 
@@ -98,7 +84,7 @@ export const tg = {
     b.onClick(onClick)
     b.setParams({
       text, is_visible: true, is_active: active,
-      ...(color ? { color } : {}), ...(textColor ? { text_color: textColor } : {}),
+      color: color || this.cta.color, text_color: textColor || this.cta.textColor,
       ...(at('7.10') ? { has_shine_effect: shine } : {}),
     })
   },
@@ -117,9 +103,11 @@ export const tg = {
   haptic(kind = 'light') {
     const h = WebApp?.HapticFeedback
     if (!h) return
-    if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(kind)) h.impactOccurred(kind)
-    else if (kind === 'selection') h.selectionChanged()
-    else h.notificationOccurred(kind) // success | warning | error
+    try {
+      if (['light', 'medium', 'heavy', 'rigid', 'soft'].includes(kind)) h.impactOccurred(kind)
+      else if (kind === 'selection') h.selectionChanged()
+      else h.notificationOccurred(kind) // success | warning | error
+    } catch { /* not supported */ }
   },
 
   // ---- navigation helpers ----
@@ -130,6 +118,13 @@ export const tg = {
   openTelegramLink(url) {
     if (WebApp) WebApp.openTelegramLink(url)
     else window.open(url, '_blank')
+  },
+  /** Telegram Stars invoice. Resolves with paid | cancelled | failed | pending. */
+  openInvoice(url) {
+    return new Promise((resolve) => {
+      if (!this.canInvoice) return resolve('failed')
+      try { WebApp.openInvoice(url, (status) => resolve(status)) } catch { resolve('failed') }
+    })
   },
   close() { WebApp?.close() },
   onVisible(cb) {
@@ -148,6 +143,13 @@ export const tg = {
     this.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`)
   },
   async copy(text) {
-    try { await navigator.clipboard.writeText(text) } catch { /* ignore */ }
+    try { await navigator.clipboard.writeText(text); return true } catch { /* fall through */ }
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'
+      document.body.appendChild(ta); ta.select()
+      const ok = document.execCommand('copy'); ta.remove()
+      return ok
+    } catch { return false }
   },
 }

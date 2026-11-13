@@ -8,7 +8,7 @@ use App\Models\Generation;
 /** Offline stand-in for local development and tests. */
 class FakeProvider implements Provider
 {
-    public function chat(AiModel $model, array $messages): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
         $last = collect($messages)->last()['content'] ?? '';
 

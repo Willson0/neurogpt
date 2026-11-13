@@ -14,11 +14,14 @@ class PaymentResource extends JsonResource
         return [
             'id' => $p->id,
             'status' => $p->status,
+            'method' => $p->provider === 'stars' ? 'stars' : 'card',
             'purpose' => $p->purpose,
             'tokens' => $p->tokens,
             'plan' => $p->plan,
             'period' => $p->period,
             'amount' => (float) $p->amount,
+            'currency' => $p->currency,
+            // card: the YooKassa page; stars: the invoice link for WebApp.openInvoice
             'confirmation_url' => $p->status === 'pending' ? $p->confirmation_url : null,
         ];
     }

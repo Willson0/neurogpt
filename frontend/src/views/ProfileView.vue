@@ -34,7 +34,7 @@
           <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
         </button>
       </li>
-      <li v-if="support">
+      <li v-if="support || app.supportUrl">
         <button type="button" class="row" @click="openSupport">
           <span class="sq"><svg class="ic-s" aria-hidden="true"><use href="#i-help" /></svg></span>
           <span class="t"><b>Помощь и документы</b></span>
@@ -67,7 +67,10 @@ export default {
   },
   methods: {
     fmt,
-    openSupport() { /^https:\/\/t\.me\//.test(this.support) ? tg.openTelegramLink(this.support) : tg.openLink(this.support) },
+    openSupport() {
+      const url = this.app.supportUrl || this.support
+      ;/^https:\/\/t\.me\//.test(url) ? tg.openTelegramLink(url) : tg.openLink(url)
+    },
   },
 }
 </script>

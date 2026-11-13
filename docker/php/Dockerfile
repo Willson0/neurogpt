@@ -3,7 +3,7 @@ FROM php:8.3-fpm-alpine
 RUN apk add --no-cache icu-libs libzip oniguruma libpng libjpeg-turbo libwebp freetype \
     && apk add --no-cache --virtual .build icu-dev libzip-dev oniguruma-dev libpng-dev libjpeg-turbo-dev libwebp-dev freetype-dev $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
-    && docker-php-ext-install -j"$(nproc)" pdo_mysql bcmath intl zip opcache pcntl gd \
+    && docker-php-ext-install -j"$(nproc)" pdo_mysql bcmath intl zip opcache pcntl gd exif \
     && apk del .build
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

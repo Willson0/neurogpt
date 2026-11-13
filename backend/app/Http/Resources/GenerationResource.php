@@ -16,6 +16,7 @@ class GenerationResource extends JsonResource
             'id' => $g->id,
             'kind' => $g->kind,
             'status' => $g->status,
+            'title' => $g->title(),
             'prompt' => $g->prompt,
             'cost' => $g->cost,
             'tool' => $g->tool,

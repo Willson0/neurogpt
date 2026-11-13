@@ -9,8 +9,9 @@ import '@fontsource/unbounded/latin-600.css'
 import './styles/app.css'
 import App from './App.vue'
 import { tg } from './services/telegram'
+import { dragScroll } from './services/dragScroll'
 
 document.documentElement.classList.add('js')
 tg.init()
 
-createApp(App).use(createPinia()).mount('#app')
+createApp(App).use(createPinia()).directive('drag-scroll', dragScroll).mount('#app')

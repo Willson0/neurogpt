@@ -23,7 +23,7 @@ class ReplicateProvider implements Provider
         return Http::withToken($cfg['api_token'])->baseUrl(rtrim($cfg['base_url'], '/'))->timeout(60)->acceptJson();
     }
 
-    public function chat(AiModel $model, array $messages): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
         throw new RuntimeException('The replicate driver does not serve text');
     }
@@ -31,14 +31,14 @@ class ReplicateProvider implements Provider
     public function media(Generation $generation, AiModel $model, ?string $inputPath): MediaResult
     {
         $input = array_filter([
-            'prompt' => $generation->prompt,
+            'prompt' => $generation->providerPrompt(),
             'aspect_ratio' => $generation->params['format'] ?? null,
             'duration' => $generation->params['duration'] ?? null,
         ]);
         if ($model->kind === 'song') {
             // Music models differ in field names: REPLICATE_SONG_PROMPT_FIELD / REPLICATE_SONG_DURATION_FIELD adjust them.
             $input = array_filter([
-                config('neurogpt.providers.replicate.song_prompt_field') => $generation->prompt,
+                config('neurogpt.providers.replicate.song_prompt_field') => $generation->providerPrompt(),
                 config('neurogpt.providers.replicate.song_duration_field') => $generation->params['duration'] ?? null,
             ]);
         }

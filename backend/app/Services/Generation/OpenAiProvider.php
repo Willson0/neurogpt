@@ -11,19 +11,19 @@ use RuntimeException;
 /** OpenAI-compatible API: OpenAI itself, OpenRouter, or any gateway that speaks the same dialect. */
 class OpenAiProvider implements Provider
 {
-    private function http()
+    private function http(?int $timeout = null)
     {
         $cfg = config('neurogpt.providers.openai');
         if (! $cfg['api_key']) {
             throw new RuntimeException('OPENAI_API_KEY is not set');
         }
 
-        return Http::withToken($cfg['api_key'])->baseUrl(rtrim($cfg['base_url'], '/'))->timeout($cfg['timeout'])->acceptJson();
+        return Http::withToken($cfg['api_key'])->baseUrl(rtrim($cfg['base_url'], '/'))->timeout($timeout ?? $cfg['timeout'])->connectTimeout(15)->acceptJson();
     }
 
-    public function chat(AiModel $model, array $messages): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
-        $res = $this->http()->post('/chat/completions', [
+        $res = $this->http($timeout)->post('/chat/completions', [
             'model' => $model->provider_model,
             'messages' => $messages,
         ])->throw()->json();
@@ -38,7 +38,7 @@ class OpenAiProvider implements Provider
 
     public function media(Generation $generation, AiModel $model, ?string $inputPath): MediaResult
     {
-        if ($model->kind !== 'image') {
+        if (! in_array($model->kind, ['image', 'tool'], true)) {
             throw new RuntimeException('The openai driver generates images only');
         }
 
@@ -47,13 +47,7 @@ class OpenAiProvider implements Provider
         $size = config('neurogpt.providers.openai.image_size') === 'ratio'
             ? match ($format) { '9:16' => '2:3', '16:9' => '3:2', default => '1:1' }
             : match ($format) { '9:16' => '1024x1536', '16:9' => '1536x1024', default => '1024x1024' };
-        $prompt = $generation->prompt;
-        if (! empty($generation->params['style']) && $generation->params['style'] !== 'любой') {
-            $prompt .= ', стиль: '.$generation->params['style'];
-        }
-        if (! empty($generation->params['negative'])) {
-            $prompt .= '. Без: '.$generation->params['negative'];
-        }
+        $prompt = $generation->providerPrompt();
 
         if ($inputPath && config('neurogpt.providers.openai.image_edit') === 'image_url') {
             // Gateways such as HydraAI take the source picture as a data URI in a JSON field.
@@ -103,6 +97,9 @@ class OpenAiProvider implements Provider
         if (! empty($b64)) {
             $bytes = base64_decode(preg_replace('/\s+/', '', $b64), true) ?: null;
         } elseif (! empty($url)) {
+            if (! preg_match('#^https://#i', $url)) {
+                throw new RuntimeException('The provider returned an unsafe link');
+            }
             $bytes = Http::timeout(60)->get($url)->throw()->body();
         }
 
@@ -112,7 +109,7 @@ class OpenAiProvider implements Provider
                 throw new RuntimeException('The provider returned invalid image data');
             }
 
-            return ImageNormalizer::normalize($bytes);
+            return ImageNormalizer::normalize($bytes, 2048, $generation->kind === 'tool' && config("neurogpt.tools.{$generation->tool}.output") === 'png');
         }
 
         throw new RuntimeException('The provider returned no image');

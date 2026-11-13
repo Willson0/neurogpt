@@ -3,11 +3,13 @@
 namespace App\Services\Telegram;
 
 use App\Exceptions\InvalidInitData;
+use App\Jobs\SyncAvatar;
 use App\Models\User;
 use App\Services\Billing\Wallet;
-use App\Jobs\SyncAvatar;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class UserResolver
 {
@@ -26,20 +28,27 @@ class UserResolver
         return $this->upsert($data['user'], $data['start_param']);
     }
 
+    /** Telegram id of the inviter from a start parameter: friend_<id> (ref_<id> is the old format). */
+    public static function referrerFrom(?string $startParam): ?int
+    {
+        return $startParam && preg_match('/^(?:friend|ref)_(\d{1,20})$/', $startParam, $m) ? (int) $m[1] : null;
+    }
+
     public function upsert(array $tg, ?string $startParam = null): User
     {
         $user = User::firstWhere('telegram_id', $tg['id']);
+        $photo = (string) ($tg['photo_url'] ?? '');
         $profile = [
-            'username' => $tg['username'] ?? null,
-            'first_name' => $tg['first_name'] ?? null,
-            'last_name' => $tg['last_name'] ?? null,
-            'language_code' => $tg['language_code'] ?? null,
-            'photo_url' => $tg['photo_url'] ?? null,
+            'username' => self::clean($tg['username'] ?? null, 64),
+            'first_name' => self::clean($tg['first_name'] ?? null, 128),
+            'last_name' => self::clean($tg['last_name'] ?? null, 128),
+            'language_code' => self::clean($tg['language_code'] ?? null, 12),
+            'photo_url' => preg_match('#^https://[\w.-]+/#', $photo) && strlen($photo) <= 255 ? $photo : null,
         ];
 
         if ($user) {
             // A locally stored avatar wins over the (often unreachable) Telegram CDN link.
-            if (str_starts_with((string) $user->photo_url, '/storage/')) {
+            if (str_starts_with((string) $user->photo_url, '/storage/') || $profile['photo_url'] === null) {
                 unset($profile['photo_url']);
             }
             $user->fill($profile)->save();
@@ -48,28 +57,34 @@ class UserResolver
             return $user;
         }
 
-        $referrerId = null;
-        if ($startParam && preg_match('/^ref_(\d+)$/', $startParam, $m)) {
-            $referrerId = User::where('telegram_id', (int) $m[1])->value('id');
-        }
+        $referrerTgId = self::referrerFrom($startParam);
+        $referrerId = $referrerTgId && $referrerTgId !== (int) $tg['id']
+            ? User::where('telegram_id', $referrerTgId)->where('is_blocked', false)->value('id')
+            : null;
 
         try {
-            $user = User::create($profile + [
-                'telegram_id' => $tg['id'],
-                'referred_by' => $referrerId,
-            ]);
+            // The account and its welcome bonus appear together or not at all.
+            $user = DB::transaction(function () use ($profile, $tg, $referrerId) {
+                $user = User::create($profile + ['telegram_id' => $tg['id'], 'referred_by' => $referrerId]);
+                if ($bonus = (int) config('neurogpt.bonus.signup')) {
+                    $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
+                }
+
+                return $user;
+            });
         } catch (UniqueConstraintViolationException) {
             // A parallel first request created the user already.
             return User::where('telegram_id', $tg['id'])->firstOrFail();
         }
 
-        if ($bonus = (int) config('neurogpt.bonus.signup')) {
-            $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
-        }
-
         $this->syncAvatar($user);
 
         return $user->refresh();
+    }
+
+    private static function clean(mixed $value, int $max): ?string
+    {
+        return is_string($value) && $value !== '' ? Str::limit($value, $max, '') : null;
     }
 
     private function syncAvatar(User $user): void

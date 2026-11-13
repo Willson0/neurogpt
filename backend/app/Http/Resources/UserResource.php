@@ -22,6 +22,8 @@ class UserResource extends JsonResource
             'plan_expires_at' => $u->activePlan() === 'free' ? null : $u->plan_expires_at?->toIso8601String(),
             'streak' => $u->streak,
             'daily_bonus_available' => ! $u->last_bonus_on || ! $u->last_bonus_on->isToday(),
+            'invite_link' => $u->inviteLink(),
+            'invited' => $u->newQuery()->where('referred_by', $u->id)->count(),
             'stats' => [
                 'created' => $u->generations()->where('status', 'done')->count(),
                 'spent' => (int) abs($u->transactions()->where('type', 'spend')->sum('amount')),

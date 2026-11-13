@@ -32,7 +32,7 @@ async function request(method, path, { json, form, query } = {}) {
   let res
   try {
     res = await fetch(url, { method, headers, body })
-  } catch (e) {
+  } catch {
     throw new ApiError(0, { message: 'network', code: 'network' })
   }
   const data = await res.json().catch(() => null)
@@ -55,7 +55,8 @@ export const api = {
   },
   updateGeneration: (id, patch) => request('PATCH', `/generations/${id}`, { json: patch }),
   cancelGeneration: (id) => request('POST', `/generations/${id}/cancel`),
-  topup: (tokens) => request('POST', '/payments/topup', { json: { tokens } }),
-  buyPlan: (plan, period) => request('POST', '/payments/plan', { json: { plan, period } }),
+  improvePrompt: (prompt, kind) => request('POST', '/prompt/improve', { json: { prompt, kind } }),
+  topup: (tokens, method) => request('POST', '/payments/topup', { json: { tokens, method } }),
+  buyPlan: (plan, period, method) => request('POST', '/payments/plan', { json: { plan, period, method } }),
   payment: (id) => request('GET', `/payments/${id}`),
 }

@@ -9,7 +9,7 @@
       <button ref="cta" type="button" :class="['cta', ctaOpen ? 'open' : '']" :aria-label="ctaAria" @click="onCta">
         <span class="fab"><svg aria-hidden="true"><use href="#i-spark" /></svg></span>
         <span :class="['lbl', ctaOpen && short ? 'short' : '']">
-          <template v-if="app.current === 'home' && hasPrompt && app.mode !== 'tools'">
+          <template v-if="app.current === 'home' && hasPrompt && composing">
             <template v-if="short">Пополнить</template>
             <template v-else>Создать<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
           </template>
@@ -52,7 +52,8 @@ export default {
     hasPrompt() { return this.app.prompt.trim().length > 0 },
     short() { return this.app.balance < this.app.cost },
     emptyGallery() { return this.app.current === 'gallery' && !this.app.photosets.length },
-    ctaOpen() { return (this.app.current === 'home' && this.app.mode !== 'tools' && this.hasPrompt) || this.emptyGallery },
+    composing() { return this.app.mode !== 'tools' && !(this.app.mode === 'song' && this.app.songsOff) },
+    ctaOpen() { return (this.app.current === 'home' && this.composing && this.hasPrompt) || this.emptyGallery },
     ctaAria() { return this.ctaOpen ? 'Создать' : 'Новая генерация' },
     native() { return tg.hasMainButton },
     /** What the primary/secondary action is on the current screen, or null when there is none. */
@@ -69,13 +70,13 @@ export default {
         const queued = g.items.every((i) => i.status === 'queued')
         return { main: 'Свернуть, пришлю в чат', sec: queued ? 'Отменить, токены вернутся' : null, secDanger: true, onMain: () => a.minimize(), onSec: () => a.cancelGeneration() }
       }
-      if (id === 'topup') return { main: `Оплатить ${fmt(a.pack.price)} ₽`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
-      if (id === 'plans' && a.tier !== 'free') {
+      if (id === 'topup') return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'plans' && a.tier !== 'free' && !(a.plan === 'pro' && a.tier === 'plus')) {
         const p = a.plans[a.tier]
         if (!p) return null
-        const price = a.period === 'month' ? p.month : p.year_month * 12
+        const price = a.priceLabel(a.period === 'month' ? p.month : p.year_month * 12, a.period === 'month' ? p.stars_month : p.stars_year)
         return {
-          main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${fmt(price)} ₽`,
+          main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${price}`,
           gold: a.tier === 'pro', shine: true, busy: a.busy, onMain: () => a.pay('plan'),
         }
       }
@@ -110,11 +111,13 @@ export default {
     onCta() {
       const a = this.app
       if (a.current === 'home' && this.ctaOpen) {
+        if (this.short) { tg.haptic('warning'); return a.openSheet('need', { lack: a.cost - a.balance }) }
         return a.start()
       }
       if (this.emptyGallery) { a.goTab('home'); return }
       tg.haptic('light')
       if (a.current !== 'home') a.goTab('home')
+      if (!this.composing) a.setMode('image')
       setTimeout(() => { document.getElementById('prompt')?.focus({ preventScroll: true }); a.kick(0.8) }, 260)
     },
     again() {

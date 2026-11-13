@@ -1,22 +1,23 @@
 # NeuroGPT
 
-Telegram Mini App для работы с нейросетями: картинки, видео, песни, фотосеты (текст будет в чате с ботом), баланс в токенах, подписки. Оплата через ЮKassa.
+Telegram Mini App для работы с нейросетями: картинки, видео, песни, фотосеты (текст будет в чате с ботом), баланс в токенах, подписки. Видео через kie.ai. Оплата через Telegram Stars и ЮKassa.
 
 ```
 backend/     Laravel 13 (PHP 8.3): API, авторизация через Telegram, генерации, платежи
 frontend/    Vue 3 (Options API) + Vite: сам Mini App
 docker/      php-fpm, nginx и сборка фронтенда
 docker-compose.yml, .env.example
-scripts/     api_smoke_test.py: сквозная проверка API
 ```
 
 ## Как это работает
 
-- **Вход.** Mini App отправляет `Authorization: tma <initData>` с каждым запросом. Бэкенд проверяет подпись (HMAC-SHA256 по токену бота), срок `auth_date` и находит или создаёт пользователя по `telegram_id`. Отдельных токенов сессии нет. Новому пользователю начисляется приветственный бонус, по ссылке `?start=ref_<id>` фиксируется реферал.
+- **Вход.** Mini App отправляет `Authorization: tma <initData>` с каждым запросом. Бэкенд проверяет подпись (HMAC-SHA256 по токену бота), срок `auth_date` и находит или создаёт пользователя по `telegram_id`. Отдельных токенов сессии нет. Новому пользователю начисляется приветственный бонус, по ссылке `?start=friend_<id>` фиксируется реферал.
 - **Токены.** Любое изменение баланса идёт через `Wallet` в одной транзакции с блокировкой строки и записью в журнал (`transactions`). Ошибка генерации возвращает токены автоматически.
 - **Генерации.** `POST /api/generations` списывает токены и ставит задачу в очередь. Воркер (`queue`) вызывает провайдера, сохраняет файл, отправляет результат в чат с ботом. Приложение опрашивает статус и показывает результат.
 - **Оплата ЮKassa.** `POST /api/payments/topup|plan` создаёт платёж и отдаёт ссылку, Mini App открывает её через `openLink`. Токены зачисляются при статусе `succeeded`: либо по webhook, либо когда приложение опрашивает платёж. Тело webhook не считается доверенным, статус всегда перечитывается из API ЮKassa, сумма сверяется, зачисление идемпотентно.
-- **Telegram-интерфейс.** Цвета берутся из темы Telegram, кнопка BackButton заменяет «Назад», MainButton и SecondaryButton заменяют нижние кнопки (в обычном браузере остаются обычные), учтены безопасные зоны, есть haptic, `shareToStory`, `downloadFile`.
+- **Telegram Stars.** Тот же `POST /api/payments/topup|plan` с `method=stars` создаёт счёт (`createInvoiceLink`, валюта XTR), Mini App открывает его через `openInvoice`. Вебхук бота отвечает на `pre_checkout_query` (сверяет сумму и статус) и зачисляет токены по `successful_payment`; повторная доставка не начисляет второй раз.
+- **Интерфейс.** Палитра своя, от Telegram берётся только светлая или тёмная тема, поэтому приложение выглядит одинаково на телефоне и в Telegram Desktop. На широком экране контент центрируется, главная делится на две колонки, шторки становятся диалогами, ленты тянутся мышью и колесом. BackButton заменяет «Назад», MainButton и SecondaryButton заменяют нижние кнопки (в обычном браузере остаются обычные), есть haptic, `shareToStory`, `downloadFile`.
+- **Безопасность.** Доверенные прокси ограничены приватными сетями, лимиты запросов на все группы маршрутов, загруженные фото перекодируются (EXIF и вложенный код отбрасываются), токен бота вычищается из логов, CORS ограничен `APP_URL`.
 
 ## Запуск на сервере (Docker)
 
@@ -102,19 +103,27 @@ sudo systemctl reload caddy
 ### 5. Подключить Telegram
 
 1. В @BotFather: `/newapp` (или Bot Settings → Menu Button) и укажите адрес `https://app.example.com`.
-2. Вебхук бота (команда `/start` с кнопкой открытия и рефералы):
+2. Вебхук бота, команды и приём платежей звёздами:
    `docker compose exec app php artisan telegram:set-webhook`
 
-### 6. Подключить ЮKassa
+   Команду нужно выполнить заново после этого обновления: вебхук теперь подписан на `pre_checkout_query`, без этого оплата Telegram Stars не пройдёт.
 
-В личном кабинете: Интеграция → HTTP-уведомления → адрес `https://app.example.com/api/payments/yookassa/webhook`, события `payment.succeeded` и `payment.canceled`. Если в магазине включены чеки по 54-ФЗ, поставьте `YOOKASSA_RECEIPT=true` и `YOOKASSA_RECEIPT_EMAIL` (email, на который уйдут чеки), при необходимости поправьте `YOOKASSA_TAX_SYSTEM` и `YOOKASSA_VAT_CODE`.
+Реферальная ссылка имеет вид `https://t.me/<бот>?start=friend_<id>`. `TELEGRAM_BOT_USERNAME` можно писать с собакой или без, в ссылку она не попадёт. Старые ссылки `ref_<id>` продолжают работать.
+
+### 6. Оплата
+
+**Telegram Stars** включены по умолчанию (`TELEGRAM_STARS_ENABLED=true`), отдельная регистрация не нужна. Цена в звёздах считается из рублёвой: `рубли / TELEGRAM_STARS_RUB_RATE`, округление вверх. Курс по умолчанию 2 ₽ за звезду, проверьте его под свою экономику. Возврат делается через `/paysupport` в боте (ссылка из `SUPPORT_URL`).
+
+**ЮKassa** (карты и СБП) включается, когда заполнены `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY`. В личном кабинете: Интеграция → HTTP-уведомления → адрес `https://app.example.com/api/payments/yookassa/webhook`, события `payment.succeeded` и `payment.canceled`. Если в магазине включены чеки по 54-ФЗ, поставьте `YOOKASSA_RECEIPT=true` и `YOOKASSA_RECEIPT_EMAIL`, при необходимости поправьте `YOOKASSA_TAX_SYSTEM` и `YOOKASSA_VAT_CODE`.
+
+Если настроены оба способа, пользователь выбирает сам. Если только один, выбор не показывается.
 
 ### Обновление и обслуживание
 
 ```bash
 git pull   # или залить новые файлы
 docker compose up -d --build
-docker compose logs --tail=100 queue
+docker compose logs --tail=100 queue scheduler
 docker compose exec db sh -c 'mysqldump -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' > backup.sql
 ```
 
@@ -129,16 +138,33 @@ cd ../frontend && npm install && npm run dev
 
 В `backend/.env` поставьте `TELEGRAM_ALLOW_DEV_AUTH=true` (работает только при `APP_ENV=local`), а во `frontend/.env` — `VITE_DEV_TELEGRAM_ID=1`, тогда приложение открывается в обычном браузере. Драйвер `fake` (по умолчанию) рисует заглушки без сети.
 
-Проверка API целиком: `python3 scripts/api_smoke_test.py` (нужны токен бота `123456:TEST-TOKEN` в `backend/.env`, поднятые сервер и воркер и мок ЮKassa, см. комментарии в скрипте).
+Тесты бэкенда: `cd backend && php artisan test` (авторизация, генерации, kie.ai, платежи, Stars).
 
 ## Провайдеры генерации
 
-Каждая модель в таблице `ai_models` ссылается на драйвер: `openai` (любой OpenAI-совместимый API: OpenAI, OpenRouter, свой шлюз), `replicate` (видео и инструменты), `fake`. Идентификатор модели на стороне провайдера лежит в `provider_model`. По умолчанию настроен HydraAI (`OPENAI_BASE_URL=https://api.hydraai.ru/v1`, `OPENAI_IMAGE_EDIT=image_url`); сидер берёт модели из `OPENAI_TEXT_MODEL` (`o4-mini`) и `OPENAI_IMAGE_MODEL` (`gpt-image-1`). Точные id смотрите в `GET https://api.hydraai.ru/v1/models`. После смены значений в `.env` выполните `docker compose -f docker-compose.server.yml up -d --force-recreate app queue` и `docker compose -f docker-compose.server.yml exec app php artisan db:seed --force`. Для самого OpenAI: `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_IMAGE_EDIT=multipart`. Видео и инструменты («Улучшить качество», «Убрать фон», «Оживить фото») работают через `replicate`: впишите версию модели в `provider_model` и поставьте `driver = replicate`; инструменты в `ai_models` с `kind = tool` по умолчанию выключены.
+Каждая модель в таблице `ai_models` ссылается на драйвер, идентификатор модели у провайдера лежит в `provider_model`.
+
+- `openai`: картинки, фотосеты и большинство инструментов раздела «Ещё». Подходит любой OpenAI-совместимый API. По умолчанию HydraAI (`OPENAI_BASE_URL=https://api.hydraai.ru/v1`, `OPENAI_IMAGE_EDIT=image_url`); для самого OpenAI: `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_IMAGE_EDIT=multipart`. Этот же ключ используется для кнопки «Улучшить» и перевода запросов к видео.
+- `kie`: видео и инструменты «Улучшить качество», «Убрать фон», «Оживить фото» через [kie.ai](https://kie.ai). Нужен только `KIE_API_KEY`. Без ключа видео выключено, а «Улучшить качество» и «Убрать фон» работают через модель картинок.
+- `fake`: заглушки для разработки.
+
+Видео-модели и их цены описаны в `backend/config/neurogpt.php` (раздел `video`): Seedance 2 Mini, Veo 3.1 Lite, Veo 3.1 Fast, Kling 3.0, Veo 3.1 Quality. Цены в токенах посчитаны от стоимости kie.ai с запасом, проверьте их перед запуском. Генерация видео идёт асинхронно: задача уходит в kie.ai, воркер опрашивает статус, результат скачивается в наше хранилище и отправляется пользователю в чат.
+
+Инструменты раздела «Ещё» и их промпты лежат там же, в разделе `tools`; стили картинок в разделе `styles`.
+
+После смены значений в `.env`: `docker compose up -d --force-recreate app queue scheduler` и `docker compose exec app php artisan db:seed --force`.
+
+## Сервисы
+
+- `app`: PHP-FPM с API.
+- `queue`: воркер генераций (`--queue=high,default`, подписчики Pro идут в очередь `high`). Масштабируется: `docker compose up -d --scale queue=3`.
+- `scheduler`: раз в две минуты возвращает токены за зависшие генерации, раз в час закрывает брошенные платежи. Должен работать ровно в одном экземпляре.
+- `web`: nginx со статикой мини-аппа и файлами результатов.
 
 ## Цены и тарифы
 
-Задаются в `backend/config/neurogpt.php`: пакеты токенов, тарифы, бонусы. Цены в рублях взяты из прототипа как «звёзды × 2», при необходимости поменяйте. Цены моделей в токенах лежат в `ai_models.price`.
+Задаются в `backend/config/neurogpt.php`: пакеты токенов, тарифы, бонусы, лимиты. Цены моделей картинок в токенах лежат в `ai_models.price`.
 
 ### Песни
 
-В мини-аппе вкладка «Песня» заменила текст: промпт, длительность (30 с, 1 мин, 2 мин; цена модели за 30 секунд, умножается на длительность), плеер и скачивание. HydraAI музыку не отдаёт, поэтому модели `kind = song` работают через `replicate`: впишите версию музыкальной модели в `REPLICATE_SONG_MODEL` (имена полей входа при необходимости в `REPLICATE_SONG_PROMPT_FIELD` и `REPLICATE_SONG_DURATION_FIELD`) и выполните `php artisan db:seed --force`. Пока переменная пуста, у песен драйвер `unavailable`: кнопка работает, токены списываются и сразу возвращаются, пользователь видит «Песни пока недоступны». Текстовые модели и API чата (`/api/chats`) остались на бэкенде для бота, мини-апп их не использует.
+Вкладка «Песня» пока закрыта заглушкой «Coming soon», а API отвечает `coming_soon`. Чтобы включить: впишите версию музыкальной модели Replicate в `REPLICATE_SONG_MODEL`, поставьте `FEATURE_SONGS=true` и выполните `php artisan db:seed --force`. Интерфейс песен в мини-аппе нужно будет доделать отдельно.

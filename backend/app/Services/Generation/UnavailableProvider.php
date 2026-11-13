@@ -9,7 +9,7 @@ use App\Models\Generation;
 /** Placeholder for models whose provider is not connected yet (songs until REPLICATE_SONG_MODEL is set). */
 class UnavailableProvider implements Provider
 {
-    public function chat(AiModel $model, array $messages): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
         throw new ProviderUnavailable('Text is not served by this driver');
     }

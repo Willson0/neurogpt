@@ -63,6 +63,14 @@ class User extends Authenticatable
         return $rank[$this->activePlan()] >= ($rank[$model->min_plan] ?? 0);
     }
 
+    /** https://t.me/<bot>?start=friend_<telegram id>, or null until the bot username is configured. */
+    public function inviteLink(): ?string
+    {
+        $bot = config('neurogpt.telegram.bot_username');
+
+        return $bot ? "https://t.me/{$bot}?start=friend_{$this->telegram_id}" : null;
+    }
+
     public function displayName(): string
     {
         return trim(($this->first_name ?? '').' '.($this->last_name ?? '')) ?: ($this->username ?? 'Пользователь');

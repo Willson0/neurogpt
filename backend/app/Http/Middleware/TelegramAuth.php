@@ -27,7 +27,7 @@ class TelegramAuth
         try {
             $user = $this->resolver->fromInitData(substr($header, 4));
         } catch (InvalidInitData $e) {
-            return response()->json(['message' => 'Invalid Telegram data', 'reason' => $e->getMessage()], 401);
+            return response()->json(['message' => 'Invalid Telegram data'], 401);
         }
 
         if ($user->is_blocked) {

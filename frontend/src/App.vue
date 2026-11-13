@@ -59,6 +59,8 @@ export default {
   mounted() {
     this.app.boot()
     tg.onVisible(() => { this.app.resumePayment(); this.app.refreshUser() })
+    // keyboard: Esc goes back on screens that have no sheet open (sheets close themselves)
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.app.sheet && this.app.canGoBack) this.app.back() })
   },
   methods: {
     syncBack() {

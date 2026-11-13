@@ -8,6 +8,15 @@ use Illuminate\Support\Facades\Log;
 
 class Bot
 {
+    /** The bot token is part of every API URL, so it must never reach a log line. */
+    public static function scrub(string $text): string
+    {
+        $token = (string) config('neurogpt.telegram.bot_token');
+        $text = $token !== '' ? str_replace($token, '<bot-token>', $text) : $text;
+
+        return (string) preg_replace('#/bot\d+:[\w-]+#', '/bot<bot-token>', $text);
+    }
+
     private function call(string $method, array $payload = [], array $files = []): ?array
     {
         $token = config('neurogpt.telegram.bot_token');
@@ -15,27 +24,31 @@ class Bot
             return null;
         }
 
-        $req = Http::timeout(60);
+        $req = Http::timeout($files ? 120 : 20)->connectTimeout(10);
         foreach ($files as $field => [$name, $contents]) {
             $req = $req->attach($field, $contents, $name);
+        }
+        // Multipart bodies carry plain strings only: nested values travel as JSON.
+        if ($files) {
+            $payload = array_map(fn ($v) => is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : $v, $payload);
         }
 
         try {
             $res = $req->post("https://api.telegram.org/bot{$token}/{$method}", $payload);
         } catch (ConnectionException $e) {
-            Log::warning('Telegram API unreachable', ['method' => $method, 'error' => $e->getMessage()]);
+            Log::warning('Telegram API unreachable', ['method' => $method, 'error' => self::scrub($e->getMessage())]);
 
             return null;
         }
         if (! $res->ok()) {
-            Log::warning('Telegram API error', ['method' => $method, 'status' => $res->status(), 'body' => $res->body()]);
+            Log::warning('Telegram API error', ['method' => $method, 'status' => $res->status(), 'body' => self::scrub($res->body())]);
 
             return null;
         }
 
         $result = $res->json('result');
 
-        return is_array($result) ? $result : ['ok' => (bool) $result];
+        return is_array($result) ? $result : ['ok' => (bool) $result, 'value' => $result];
     }
 
     public function sendMessage(int $chatId, string $text, array $extra = []): ?array
@@ -50,7 +63,7 @@ class Bot
 
     public function sendVideo(int $chatId, string $contents, string $filename, ?string $caption = null): ?array
     {
-        return $this->call('sendVideo', array_filter(['chat_id' => $chatId, 'caption' => $caption]), ['video' => [$filename, $contents]]);
+        return $this->call('sendVideo', array_filter(['chat_id' => $chatId, 'caption' => $caption, 'supports_streaming' => 'true']), ['video' => [$filename, $contents]]);
     }
 
     public function sendAudio(int $chatId, string $contents, string $filename, ?string $caption = null): ?array
@@ -73,7 +86,48 @@ class Bot
 
     public function setWebhook(string $url, string $secret): ?array
     {
-        return $this->call('setWebhook', ['url' => $url, 'secret_token' => $secret, 'allowed_updates' => ['message']]);
+        // pre_checkout_query is required for Telegram Stars payments.
+        return $this->call('setWebhook', [
+            'url' => $url, 'secret_token' => $secret, 'allowed_updates' => ['message', 'pre_checkout_query'],
+        ]);
+    }
+
+    public function setCommands(): ?array
+    {
+        return $this->call('setMyCommands', ['commands' => [
+            ['command' => 'start', 'description' => 'Открыть NeuroGPT'],
+            ['command' => 'paysupport', 'description' => 'Вопросы по оплате'],
+        ]]);
+    }
+
+    // ---- Telegram Stars ----
+
+    /** Invoice link for a payment in Stars (currency XTR, no provider token). */
+    public function createStarsInvoice(string $title, string $description, string $payload, int $stars): ?string
+    {
+        $res = $this->call('createInvoiceLink', [
+            'title' => mb_substr($title, 0, 32),
+            'description' => mb_substr($description, 0, 255),
+            'payload' => $payload,
+            'provider_token' => '',
+            'currency' => 'XTR',
+            'prices' => [['label' => mb_substr($title, 0, 32), 'amount' => $stars]],
+        ]);
+        $link = $res['value'] ?? null;
+
+        return is_string($link) && str_starts_with($link, 'https://') ? $link : null;
+    }
+
+    public function answerPreCheckout(string $queryId, bool $ok, ?string $error = null): ?array
+    {
+        return $this->call('answerPreCheckoutQuery', array_filter([
+            'pre_checkout_query_id' => $queryId, 'ok' => $ok, 'error_message' => $ok ? null : ($error ?? 'Платёж не найден'),
+        ], fn ($v) => $v !== null));
+    }
+
+    public function refundStars(int $telegramUserId, string $chargeId): ?array
+    {
+        return $this->call('refundStarPayment', ['user_id' => $telegramUserId, 'telegram_payment_charge_id' => $chargeId]);
     }
 
     /** Smallest-but-not-tiny profile photo of a user as raw image bytes, or null. */

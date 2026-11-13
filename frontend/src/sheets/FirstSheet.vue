@@ -1,7 +1,7 @@
 <template>
   <div class="hero-stk"><TgsPlayer name="token" :size="160" /></div>
   <h3 id="sheetTitle">Дарим {{ app.bonus.signup || 50 }} токенов</h3>
-  <p class="lead">Хватит на {{ Math.floor((app.bonus.signup || 50) / (app.models.image[0]?.price || 8)) }} картинок. Напишите идею и нажмите искру справа от дока.</p>
+  <p class="lead">Хватит на {{ Math.floor((app.bonus.signup || 50) / (app.models.image[0]?.price || 8)) }} картинок. Напишите идею и нажмите «Создать».</p>
   <button type="button" class="bigbtn shine" @click="go"><span class="lbl">Попробовать</span></button>
 </template>
 

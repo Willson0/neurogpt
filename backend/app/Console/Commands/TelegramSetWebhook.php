@@ -21,7 +21,13 @@ class TelegramSetWebhook extends Command
         }
 
         $url = rtrim(config('app.url'), '/').'/api/telegram/webhook';
-        $this->info($bot->setWebhook($url, $secret) !== null ? "Webhook set: $url" : 'Telegram refused the request, check the log.');
+        if ($bot->setWebhook($url, $secret) === null) {
+            $this->error('Telegram refused the request, check the log.');
+
+            return self::FAILURE;
+        }
+        $bot->setCommands();
+        $this->info("Webhook set: $url (updates: message, pre_checkout_query)");
 
         return self::SUCCESS;
     }

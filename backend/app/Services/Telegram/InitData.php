@@ -30,20 +30,30 @@ class InitData
         if (! $this->botToken) {
             throw new InvalidInitData('Bot token is not configured');
         }
+        if ($raw === '' || strlen($raw) > 8192) {
+            throw new InvalidInitData('Malformed initData');
+        }
 
-        parse_str($raw, $fields);
-        $hash = $fields['hash'] ?? null;
-        if (! is_string($hash) || $hash === '') {
+        // Parsed by hand: parse_str() rewrites keys and builds arrays from "a[b]=c", which must never reach the signature check.
+        $fields = [];
+        foreach (explode('&', $raw) as $pair) {
+            [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
+            $key = rawurldecode($key);
+            if ($key === '' || array_key_exists($key, $fields)) {
+                throw new InvalidInitData('Malformed initData');
+            }
+            $fields[$key] = urldecode($value);
+        }
+
+        $hash = $fields['hash'] ?? '';
+        if (! preg_match('/^[0-9a-f]{64}$/i', $hash)) {
             throw new InvalidInitData('Missing hash');
         }
         unset($fields['hash']);
 
-        ksort($fields);
+        ksort($fields, SORT_STRING);
         $pairs = [];
         foreach ($fields as $key => $value) {
-            if (! is_string($value)) {
-                throw new InvalidInitData('Malformed field '.$key);
-            }
             $pairs[] = $key.'='.$value;
         }
 
@@ -59,7 +69,7 @@ class InitData
         }
 
         $user = json_decode($fields['user'] ?? '', true);
-        if (! is_array($user) || empty($user['id'])) {
+        if (! is_array($user) || ! is_int($user['id'] ?? null) || $user['id'] <= 0 || ! empty($user['is_bot'])) {
             throw new InvalidInitData('No user in initData');
         }
 

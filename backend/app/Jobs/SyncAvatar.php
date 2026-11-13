@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\User;
+use App\Services\Generation\ImageNormalizer;
 use App\Services\Telegram\Bot;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -29,8 +30,13 @@ class SyncAvatar implements ShouldQueue
             return;
         }
 
+        // Re-encoded so that only a real picture ever lands in public storage.
+        $image = ImageNormalizer::normalize($bytes, 320);
+        if ($image->extension !== 'jpg') {
+            return;
+        }
         $path = "avatars/{$user->telegram_id}.jpg";
-        Storage::disk('public')->put($path, $bytes);
+        Storage::disk('public')->put($path, $image->bytes);
         $user->forceFill(['photo_url' => "/storage/{$path}?v=".time()])->save();
     }
 }

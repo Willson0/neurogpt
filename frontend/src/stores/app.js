@@ -13,8 +13,10 @@ const FORMATS = [
   { ratio: '16:9', ar: 1.7778, w: 18, h: 10 },
 ]
 const PLAN_RANK = { free: 0, plus: 1, pro: 2 }
-/** The direct link to the admin panel: https://<app>/admin */
-export const adminLink = () => location.pathname.replace(/\/+$/, '') === '/admin'
+/** The direct link to the admin panel: https://<app>/admin (a page of its own, admin.html). */
+export const adminLink = () => /^\/admin(\.html)?$/.test(location.pathname.replace(/\/+$/, ''))
+/** Leaves the Mini App for the admin page, optionally on a section. Telegram keeps initData across the navigation. */
+export const openAdmin = (section = '') => { location.href = '/admin' + (section ? '?section=' + encodeURIComponent(section) : '') }
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -37,7 +39,8 @@ export const useApp = defineStore('app', {
     recent: [],
     botUsername: '',
 
-    stack: [adminLink() ? 'admin' : 'home'],
+    stack: ['home'],
+    standalone: false, // true on the admin page: no catalog to keep fresh there
     tab: 'home',
     sheet: null, // { name, props }
     toastState: null, // { id, text, sticker }
@@ -157,6 +160,7 @@ export const useApp = defineStore('app', {
     },
     /** After a change in the admin panel: the same data as on start, without the boot screen. */
     async reloadCatalog() {
+      if (this.standalone) return
       try { this.applyBootstrap(await api.bootstrap()) } catch { /* the next start picks it up */ }
     },
     setUser(u) { if (u) this.user = u },

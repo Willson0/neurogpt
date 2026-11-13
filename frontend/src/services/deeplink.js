@@ -1,5 +1,6 @@
 import { tg } from './telegram'
 import { api } from './api'
+import { openAdmin } from '../stores/app'
 
 /**
  * Opening the app on a given screen ("deep link").
@@ -57,6 +58,13 @@ const ADMIN_SECTIONS = ['dashboard', 'content', 'models', 'tools', 'showcase', '
  * Returns true when something was opened.
  */
 export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
+  // Telegram keeps start_param for the whole visit: coming back from the admin page must not jump again.
+  // One opening of the Mini App has one auth_date, so the pair marks this visit.
+  const visit = `${raw}|${tg.raw?.initDataUnsafe?.auth_date || location.search}`
+  try {
+    if (sessionStorage.getItem('ng_link') === visit) return false
+    sessionStorage.setItem('ng_link', visit)
+  } catch { /* private mode */ }
   const link = parseLink(raw)
   if (prompt) app.prompt = prompt
   if (!link) return false
@@ -152,11 +160,7 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
 
     case 'admin': {
       if (!app.isAdmin) return false
-      if (ADMIN_SECTIONS.includes(arg)) {
-        try { sessionStorage.setItem('ng_admin_tab', arg) } catch { /* private mode */ }
-      }
-      app.tab = 'profile'
-      app.stack = ['profile', 'admin']
+      openAdmin(ADMIN_SECTIONS.includes(arg) ? arg : '')
       return true
     }
     default:

@@ -35,7 +35,7 @@
         </button>
       </li>
       <li v-if="app.isAdmin">
-        <button type="button" class="row" @click="app.push('admin')">
+        <button type="button" class="row" @click="openAdmin()">
           <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-gear" /></svg></span>
           <span class="t"><b>Админка</b></span>
           <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
@@ -53,7 +53,7 @@
 </template>
 
 <script>
-import { useApp } from '../stores/app'
+import { useApp, openAdmin } from '../stores/app'
 import { fmt } from '../services/format'
 import { tg } from '../services/telegram'
 import Sticker from '../components/Sticker.vue'
@@ -73,6 +73,7 @@ export default {
     },
   },
   methods: {
+    openAdmin() { tg.haptic('light'); openAdmin() },
     fmt,
     openSupport() {
       const url = this.app.supportUrl || this.support

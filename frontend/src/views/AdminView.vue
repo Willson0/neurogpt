@@ -49,19 +49,25 @@ export default {
     webLogin() { return !tg.initData && !!webLogin.get() },
   },
   created() {
-    try { const saved = sessionStorage.getItem('ng_admin_tab'); if (this.sections.some((s) => s.id === saved)) this.current = saved } catch { /* private mode */ }
+    // ?section=payments from a link wins over the section remembered in this tab
+    const asked = new URLSearchParams(location.search).get('section')
+    let saved = null
+    try { saved = sessionStorage.getItem('ng_admin_tab') } catch { /* private mode */ }
+    const pick = [asked, saved].find((id) => this.sections.some((s) => s.id === id))
+    if (pick) this.go(pick, false)
   },
   methods: {
-    go(id) {
+    go(id, scroll = true) {
       this.current = id
       this.contentUser = ''
       try { sessionStorage.setItem('ng_admin_tab', id) } catch { /* private mode */ }
-      document.getElementById('scroll')?.scrollTo({ top: 0 })
+      if (scroll) document.getElementById('scroll')?.scrollTo({ top: 0 })
     },
     showContent(user) { this.go('content'); this.contentUser = user },
     showPayments(user) { this.go('payments'); this.contentUser = user },
     /** Opened by the /admin link there is nothing to go back to: the arrow leads into the app. */
     leave() {
+      if (this.app.standalone) { location.href = '/'; return }
       if (this.app.canGoBack) return this.app.back()
       if (location.pathname !== '/') history.replaceState(null, '', '/')
       this.app.goTab('home')

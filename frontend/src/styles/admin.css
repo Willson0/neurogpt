@@ -104,3 +104,8 @@
 /* a real picture fills a photoset card the same way the generated placeholder does */
 .pset > img, .trend > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .pset-img { object-fit: cover; }
+
+/* The admin page (admin.html) has a flat background: a backdrop blur there costs a repaint on every scroll frame
+   and changes nothing on screen, so glass cards are drawn as plain translucent surfaces. */
+.adm-page .glass { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.adm-page .app { min-height: 100dvh; }

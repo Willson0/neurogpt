@@ -8,8 +8,10 @@ $kieDriver = $kieKey ? 'kie' : ($default === 'fake' ? 'fake' : 'unavailable');
 
 return [
 
-    // Telegram ids that may open the admin panel. Checked on the server for every /api/admin request.
+    // Main admins: always have access and manage the list of other admins. Checked on the server for every /api/admin request.
     'admin_ids' => [1337592809],
+    // Admins added by the main admin in the panel (stored in the settings table).
+    'admins' => [],
 
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),

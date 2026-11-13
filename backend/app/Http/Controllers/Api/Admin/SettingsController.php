@@ -63,7 +63,7 @@ class SettingsController extends Controller
     private function values(): array
     {
         $all = Settings::all();
-        unset($all['deleted']);
+        unset($all['deleted'], $all['admins']);
         $all['theme'] = ['dark' => (object) ($all['theme']['dark'] ?? []), 'light' => (object) ($all['theme']['light'] ?? [])];
 
         return $all;

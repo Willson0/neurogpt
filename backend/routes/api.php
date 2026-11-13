@@ -87,4 +87,9 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::patch('users/{user}', [UsersController::class, 'update'])->whereNumber('user');
     Route::post('users/{user}/balance', [UsersController::class, 'balance'])->whereNumber('user');
     Route::get('payments', [UsersController::class, 'payments']);
+
+    // Reading is open to every admin; adding and removing is checked inside for the main admin.
+    Route::get('admins', [UsersController::class, 'admins']);
+    Route::post('admins', [UsersController::class, 'addAdmin']);
+    Route::delete('admins/{telegramId}', [UsersController::class, 'removeAdmin'])->whereNumber('telegramId');
 });

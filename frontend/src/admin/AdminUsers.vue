@@ -5,6 +5,13 @@
       <label class="adm-f grow">Поиск<input v-model.trim="q" type="search" placeholder="@username, имя или Telegram id" @keyup.enter="reload" @search="reload"></label>
       <label class="adm-f">Показать<select v-model="filter" @change="reload"><option value="">Всех</option><option value="paid">С подпиской</option><option value="blocked">Заблокированных</option></select></label>
     </div>
+    <template v-else-if="tab === 'admins'">
+      <p class="adm-note">Администраторы видят всю админку. Добавлять и убирать их может только главный администратор, его убрать нельзя.</p>
+      <form v-if="canManage" class="adm-bar" @submit.prevent="addAdmin">
+        <label class="adm-f grow">Кого добавить<input v-model.trim="newAdmin" required maxlength="64" placeholder="Telegram id или @username"></label>
+        <button type="submit" class="adm-btn" style="align-self:end" :disabled="busy">Добавить</button>
+      </form>
+    </template>
     <div v-else class="adm-bar">
       <label class="adm-f">Статус<select v-model="status" @change="reload"><option value="">Любой</option><option value="succeeded">Оплачен</option><option value="pending">Ожидает</option><option value="canceled">Отменён</option></select></label>
     </div>
@@ -51,6 +58,19 @@
       </div>
     </div>
 
+    <ul v-else-if="tab === 'admins'" class="list glass">
+      <li v-for="a in items" :key="a.telegram_id">
+        <div class="row">
+          <span :class="['sq', a.is_owner ? 'hot' : '']"><svg class="ic-s" aria-hidden="true"><use :href="a.is_owner ? '#i-crown' : '#i-user'" /></svg></span>
+          <span class="t"><b>{{ a.name || 'Ещё не открывал приложение' }}</b><span>{{ a.username ? '@' + a.username + ' · ' : '' }}id {{ a.telegram_id }}</span></span>
+          <span class="end">
+            <span v-if="a.is_owner" class="adm-pill hot">главный</span>
+            <button v-else-if="canManage" type="button" class="adm-btn danger sm" :disabled="busy" @click="removeAdmin(a)">{{ confirmAdmin === a.telegram_id ? 'Точно убрать?' : 'Убрать' }}</button>
+          </span>
+        </div>
+      </li>
+    </ul>
+
     <ul v-else class="list glass">
       <li v-for="p in items" :key="p.id">
         <div class="row">
@@ -73,9 +93,9 @@ export default {
   mixins: [section],
   emits: ['content'],
   data: () => ({
-    tabs: { users: 'Пользователи', payments: 'Платежи' }, tab: 'users', plans: PLANS,
+    tabs: { users: 'Пользователи', payments: 'Платежи', admins: 'Администраторы' }, tab: 'users', plans: PLANS,
     payStatus: { succeeded: 'оплачен', pending: 'ожидает', canceled: 'отменён' },
-    q: '', filter: '', status: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: 30, seq: 0,
+    q: '', filter: '', status: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: 30, seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
   }),
   mounted() { this.reload() },
   methods: {
@@ -83,7 +103,9 @@ export default {
     load(page) {
       const seq = ++this.seq
       return this.fetch(async () => {
-        const r = this.tab === 'users' ? await adminApi.list('users', { q: this.q, filter: this.filter, page }) : await adminApi.list('payments', { status: this.status, page })
+        const r = this.tab === 'users' ? await adminApi.list('users', { q: this.q, filter: this.filter, page })
+          : this.tab === 'admins' ? await adminApi.list('admins') : await adminApi.list('payments', { status: this.status, page })
+        if (this.tab === 'admins') this.canManage = r.can_manage
         if (seq !== this.seq) return
         this.items = page === 1 ? r.data : [...this.items, ...r.data]
         this.next = r.next_page
@@ -99,6 +121,11 @@ export default {
     replace(old, fresh) { const i = this.items.indexOf(old); this.items.splice(i, 1, fresh); this.edit = this.items[i]; if (fresh.id === this.app.user.id) this.app.refreshUser() },
     balance(u, sign) { return this.run(async () => { this.replace(u, (await adminApi.balance(u.id, sign * this.amount, this.comment || null)).data) }, sign > 0 ? 'Токены начислены' : 'Токены списаны') },
     setPlan(u) { return this.run(async () => { this.replace(u, (await adminApi.update('users', u.id, { plan: this.plan, plan_days: this.days })).data) }, 'Подписка обновлена') },
+    addAdmin() { return this.run(async () => { this.items = (await adminApi.create('admins', { user: this.newAdmin })).data; this.newAdmin = '' }, 'Администратор добавлен') },
+    removeAdmin(a) {
+      if (this.confirmAdmin !== a.telegram_id) { this.confirmAdmin = a.telegram_id; return }
+      return this.run(async () => { this.items = (await adminApi.remove('admins', a.telegram_id)).data; this.confirmAdmin = null }, 'Доступ убран')
+    },
     block(u) { return this.run(async () => { this.replace(u, (await adminApi.update('users', u.id, { is_blocked: !u.is_blocked })).data) }, u.is_blocked ? 'Разблокирован' : 'Заблокирован') },
   },
 }

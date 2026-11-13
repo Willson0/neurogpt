@@ -12,6 +12,8 @@ const FORMATS = [
   { ratio: '16:9', ar: 1.7778, w: 18, h: 10 },
 ]
 const PLAN_RANK = { free: 0, plus: 1, pro: 2 }
+/** The direct link to the admin panel: https://<app>/admin */
+export const adminLink = () => location.pathname.replace(/\/+$/, '') === '/admin'
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -34,7 +36,7 @@ export const useApp = defineStore('app', {
     recent: [],
     botUsername: '',
 
-    stack: ['home'],
+    stack: [adminLink() ? 'admin' : 'home'],
     tab: 'home',
     sheet: null, // { name, props }
     toastState: null, // { id, text, sticker }

@@ -37,7 +37,7 @@ class AdminTest extends TestCase
         $this->assertGreaterThan(25, $routes->count());
 
         foreach ($routes as $route) {
-            $uri = '/'.preg_replace('/\{[a-z]+\}/', '1', $route->uri());
+            $uri = '/'.preg_replace('/\{[A-Za-z]+\}/', '1', $route->uri());
             $method = $route->methods()[0];
             $this->as(1)->json($method, $uri)->assertStatus(403);
             $this->flushHeaders()->json($method, $uri, [], ['Accept' => 'application/json'])->assertStatus(401);
@@ -236,6 +236,37 @@ class AdminTest extends TestCase
         $this->admin()->getJson('/api/admin/users?filter=blocked')->assertJsonPath('summary.total', 1);
     }
 
+    public function test_main_admin_adds_and_removes_admins(): void
+    {
+        $this->user(42);
+        $this->as(42)->getJson('/api/admin/stats')->assertStatus(403);
+
+        $this->admin()->postJson('/api/admin/admins', ['user' => '@nik42'])->assertCreated()->assertJsonCount(2, 'data')->assertJsonPath('data.1.username', 'nik42');
+        $this->admin()->postJson('/api/admin/admins', ['user' => '42'])->assertStatus(422);
+        $this->admin()->postJson('/api/admin/admins', ['user' => '@nobody'])->assertStatus(422);
+        $this->admin()->postJson('/api/admin/admins', ['user' => '777'])->assertCreated()->assertJsonPath('data.2.opened_app', false);
+
+        $this->as(42)->getJson('/api/me')->assertJsonPath('is_admin', true)->assertJsonPath('is_owner', false);
+        $this->as(42)->getJson('/api/admin/stats')->assertOk();
+        $this->as(42)->getJson('/api/admin/admins')->assertOk()->assertJsonPath('can_manage', false)->assertJsonPath('data.0.is_owner', true);
+        // an added admin cannot promote, demote, or change the list through settings
+        $this->as(42)->postJson('/api/admin/admins', ['user' => '555'])->assertStatus(403);
+        $this->as(42)->deleteJson('/api/admin/admins/777')->assertStatus(403);
+        $this->as(42)->deleteJson('/api/admin/admins/'.self::ADMIN)->assertStatus(403);
+        $this->as(42)->putJson('/api/admin/settings', ['values' => ['admins' => [555]]])->assertStatus(422);
+        $this->admin()->putJson('/api/admin/settings', ['values' => ['admins' => [555]]])->assertStatus(422);
+        $this->assertArrayNotHasKey('admins', $this->admin()->getJson('/api/admin/settings')->json('data'));
+
+        // the list survives a restart, the main admin cannot be removed
+        config(['neurogpt.admins' => []]);
+        Settings::apply();
+        $this->assertSame([42, 777], config('neurogpt.admins'));
+        $this->admin()->deleteJson('/api/admin/admins/'.self::ADMIN)->assertStatus(404);
+        $this->admin()->deleteJson('/api/admin/admins/42')->assertOk()->assertJsonCount(2, 'data');
+        $this->as(42)->getJson('/api/admin/stats')->assertStatus(403);
+        $this->as(42)->getJson('/api/me')->assertJsonPath('is_admin', false);
+    }
+
     public function test_browser_login_widget_works_for_the_admin_only(): void
     {
         $sign = function (int $id, int $age = 0, string $token = self::TOKEN): string {
@@ -251,6 +282,8 @@ class AdminTest extends TestCase
         $get($sign(self::ADMIN))->assertOk();
         $get($sign(self::ADMIN), '/api/me')->assertOk()->assertJsonPath('is_admin', true)->assertJsonPath('username', 'boss');
         $get($sign(555), '/api/me')->assertStatus(401);
+        $this->admin()->postJson('/api/admin/admins', ['user' => '555'])->assertCreated();
+        $get($sign(555))->assertOk();
         $get($sign(self::ADMIN, 0, 'other:token'))->assertStatus(401);
         $get($sign(self::ADMIN, 40 * 86400))->assertStatus(401);
         $get('tgl '.base64_encode(json_encode(['id' => self::ADMIN, 'auth_date' => time(), 'hash' => str_repeat('0', 64)])))->assertStatus(401);

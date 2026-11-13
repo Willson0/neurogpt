@@ -28,6 +28,8 @@ class Settings
         'providers.openai.text_model' => false,
         'providers.openai.image_model' => false,
         'providers.kie.translate' => false,
+        // Telegram ids of admins added in the panel. Changed only through /api/admin/admins, by an owner.
+        'admins' => false,
         // Catalog rows the admin deleted, so the seeder does not bring them back.
         'deleted' => false,
     ];

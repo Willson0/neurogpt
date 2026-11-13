@@ -36,7 +36,7 @@ class UserResolver
     public function fromLoginWidget(string $raw): User
     {
         $data = LoginWidget::validate($raw);
-        if (! in_array((int) $data['user']['id'], array_map('intval', (array) config('neurogpt.admin_ids')), true)) {
+        if (! \App\Http\Middleware\AdminOnly::allowsId((int) $data['user']['id'])) {
             throw new InvalidInitData('Browser sign-in is for admins only');
         }
 

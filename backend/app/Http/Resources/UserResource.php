@@ -22,6 +22,7 @@ class UserResource extends JsonResource
             'plan_expires_at' => $u->activePlan() === 'free' ? null : $u->plan_expires_at?->toIso8601String(),
             'streak' => $u->streak,
             'is_admin' => \App\Http\Middleware\AdminOnly::allows($u),
+            'is_owner' => \App\Http\Middleware\AdminOnly::isOwner($u),
             'daily_bonus_available' => ! $u->last_bonus_on || ! $u->last_bonus_on->isToday(),
             'invite_link' => $u->inviteLink(),
             'invited' => $u->newQuery()->where('referred_by', $u->id)->count(),

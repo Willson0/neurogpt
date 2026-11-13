@@ -8,6 +8,7 @@ use App\Http\Middleware\AdminOnly;
 use App\Models\Generation;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\Admin\Settings;
 use App\Services\Billing\Wallet;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -96,6 +97,62 @@ class UsersController extends Controller
         return response()->json(['data' => $this->user($user->refresh()->loadCount(['generations as created' => fn ($g) => $g->where('status', 'done')]))]);
     }
 
+    // ---------- admins ----------
+
+    public function admins(Request $request)
+    {
+        return response()->json(['data' => $this->adminList(), 'can_manage' => AdminOnly::isOwner($request->user())]);
+    }
+
+    /** Only a main admin (hardcoded in config) may give or take admin rights. */
+    public function addAdmin(Request $request)
+    {
+        abort_unless(AdminOnly::isOwner($request->user()), 403, 'Only the main admin can manage admins');
+        $data = $request->validate(['user' => ['required', 'string', 'max:64']]);
+        $term = ltrim(trim($data['user']), '@');
+
+        if (ctype_digit($term) && strlen($term) <= 15 && (int) $term > 0) {
+            $id = (int) $term;
+        } else {
+            $id = (int) User::where('username', $term)->value('telegram_id');
+            if (! $id) {
+                throw ValidationException::withMessages(['user' => 'Такого @username в приложении нет. Укажите числовой Telegram id.']);
+            }
+        }
+        if (AdminOnly::allowsId($id)) {
+            throw ValidationException::withMessages(['user' => 'Этот человек уже администратор']);
+        }
+        if (count(AdminOnly::added()) >= 50) {
+            throw ValidationException::withMessages(['user' => 'Слишком много администраторов']);
+        }
+        Settings::put('admins', [...AdminOnly::added(), $id]);
+
+        return response()->json(['data' => $this->adminList()], 201);
+    }
+
+    public function removeAdmin(Request $request, int $telegramId)
+    {
+        abort_unless(AdminOnly::isOwner($request->user()), 403, 'Only the main admin can manage admins');
+        abort_unless(in_array($telegramId, AdminOnly::added(), true), 404);
+        Settings::put('admins', array_values(array_diff(AdminOnly::added(), [$telegramId])));
+
+        return response()->json(['data' => $this->adminList()]);
+    }
+
+    private function adminList(): array
+    {
+        $ids = [...AdminOnly::owners(), ...AdminOnly::added()];
+        $users = User::whereIn('telegram_id', $ids)->get()->keyBy('telegram_id');
+
+        return collect($ids)->unique()->values()->map(fn (int $id) => [
+            'telegram_id' => $id,
+            'name' => $users->get($id)?->displayName(),
+            'username' => $users->get($id)?->username,
+            'is_owner' => in_array($id, AdminOnly::owners(), true),
+            'opened_app' => $users->has($id),
+        ])->all();
+    }
+
     public function payments(Request $request)
     {
         $f = $request->validate([
@@ -175,7 +232,7 @@ class UsersController extends Controller
             'id' => $u->id, 'telegram_id' => $u->telegram_id, 'name' => $u->displayName(), 'username' => $u->username,
             'photo_url' => $u->photo_url, 'balance' => $u->balance, 'plan' => $u->activePlan(),
             'plan_expires_at' => $u->activePlan() === 'free' ? null : $u->plan_expires_at?->toIso8601String(),
-            'is_blocked' => $u->is_blocked, 'is_admin' => AdminOnly::allows($u), 'created' => (int) ($u->created ?? 0),
+            'is_blocked' => $u->is_blocked, 'is_admin' => AdminOnly::allows($u), 'is_owner' => AdminOnly::isOwner($u), 'created' => (int) ($u->created ?? 0),
             'created_at' => $u->created_at?->toIso8601String(),
         ];
     }

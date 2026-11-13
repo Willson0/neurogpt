@@ -10,14 +10,21 @@ import { reduceMotion, tokenColor } from '../services/format'
 export default {
   name: 'PlasmaCanvas',
   props: { dim: Boolean },
-  data: () => ({ energy: 0.35, t: 0, raf: 0 }),
+  data: () => ({ energy: 0.35, t: 0, raf: 0, last: 0, cols: null }),
   computed: { app() { return useApp() } },
   mounted() {
     this.start()
     document.addEventListener('visibilitychange', this.start)
+    // colors are read once and again only when the theme changes: reading styles every frame is costly
+    this.recolor = () => { this.cols = null; this.start() }
+    document.addEventListener('ng-theme', this.recolor)
+    this.scheme = new MutationObserver(this.recolor)
+    this.scheme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
   },
   beforeUnmount() {
     cancelAnimationFrame(this.raf)
+    this.scheme.disconnect()
+    document.removeEventListener('ng-theme', this.recolor)
     document.removeEventListener('visibilitychange', this.start)
   },
   watch: {
@@ -27,16 +34,23 @@ export default {
     start() {
       if (!this.raf && !document.hidden) this.raf = requestAnimationFrame(this.frame)
     },
-    frame() {
+    frame(now = 0) {
       const p = this.app.plasma
       const cv = this.$refs.cv
       if (!cv) return
+      this.raf = 0
+      // 30 frames a second is plenty for a slow glow and halves the repaint work of everything above it
+      const dt = now - this.last
+      if (dt < 30 && this.cols) { this.raf = requestAnimationFrame(this.frame); return }
+      const k = this.last ? Math.min(4, dt / 16.7) : 1
+      this.last = now
       const x = cv.getContext('2d')
-      const w = (cv.width = 120), h = (cv.height = 130)
-      this.energy += (p.target - this.energy) * 0.06
-      this.t += 0.006 * p.speed * (0.6 + this.energy)
+      const w = 120, h = 130
+      if (cv.width !== w) { cv.width = w; cv.height = h }
+      this.energy += (p.target - this.energy) * Math.min(1, 0.06 * k)
+      this.t += 0.006 * k * p.speed * (0.6 + this.energy)
       x.clearRect(0, 0, w, h)
-      const cols = ['--plasma-1', '--plasma-2', '--plasma-3'].map(tokenColor)
+      const cols = (this.cols ||= ['--plasma-1', '--plasma-2', '--plasma-3'].map(tokenColor))
       x.globalCompositeOperation = 'lighter'
       for (let i = 0; i < 3; i++) {
         const cx = w * (0.5 + Math.sin(this.t * (1 + i * 0.37) + i * 2) * 0.32)
@@ -52,8 +66,7 @@ export default {
       x.fillStyle = m; x.fillRect(0, 0, w, h)
       x.globalCompositeOperation = 'source-over'
       // the target relaxes back to idle
-      if (p.target > 0.36 && p.target < 1.2) p.target = Math.max(0.35, p.target - 0.004)
-      this.raf = 0
+      if (p.target > 0.36 && p.target < 1.2) p.target = Math.max(0.35, p.target - 0.004 * k)
       if (!reduceMotion() && !document.hidden) this.raf = requestAnimationFrame(this.frame)
     },
   },

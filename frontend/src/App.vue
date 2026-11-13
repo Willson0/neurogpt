@@ -5,12 +5,12 @@
     <div v-if="app.booting && !app.user" class="boot" role="status"><Sticker name="art" :size="96" glow glow-color="--plasma-2" /></div>
     <div v-else-if="app.bootError && !app.user" class="boot">
       <Sticker name="cry" :size="96" glow glow-color="--plasma-1" />
-      <h3>{{ unauthorized ? 'Откройте приложение из Telegram' : 'Нет соединения' }}</h3>
-      <p>{{ unauthorized ? 'Нужна авторизация через Telegram, откройте бота и нажмите кнопку.' : 'Проверьте интернет и попробуйте ещё раз.' }}</p>
+      <h3>{{ !unauthorized ? 'Нет соединения' : adminLink && browser ? 'Вход в админку' : 'Откройте приложение из Telegram' }}</h3>
+      <p v-if="!(unauthorized && adminLink && browser)">{{ unauthorized ? 'Нужна авторизация через Telegram, откройте бота и нажмите кнопку.' : 'Проверьте интернет и попробуйте ещё раз.' }}</p>
       <button v-if="!unauthorized" type="button" class="pill-btn" @click="app.boot()">Повторить</button>
       <!-- A plain browser: the admin signs in with the Telegram Login Widget. -->
       <div v-else-if="browser" class="adm-login">
-        <p>Администратор может войти через Telegram прямо в браузере.</p>
+        <p>{{ adminLink ? 'Войдите через Telegram под аккаунтом администратора.' : 'Администратор может войти через Telegram прямо в браузере.' }}</p>
         <div ref="login" />
         <p v-if="loginError" class="err-text">{{ loginError }}</p>
       </div>
@@ -30,7 +30,7 @@
 </template>
 
 <script>
-import { useApp } from './stores/app'
+import { useApp, adminLink } from './stores/app'
 import { tg } from './services/telegram'
 import PlasmaCanvas from './components/PlasmaCanvas.vue'
 import BottomBar from './components/BottomBar.vue'
@@ -56,19 +56,19 @@ export default {
     home: HomeView, create: CreateView, gallery: GalleryView, profile: ProfileView,
     history: HistoryView, topup: TopupView, plans: PlansView, admin: AdminView,
   },
-  data: () => ({ loginError: '' }),
+  data: () => ({ loginError: '', adminLink: adminLink() }),
   computed: {
     app() { return useApp() },
     unauthorized() { return this.app.bootError?.status === 401 },
     browser() { return !tg.initData },
   },
   watch: {
-    'app.current'() { this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },
+    'app.current'() { this.guardAdmin(); this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },
     'app.canGoBack': { immediate: true, handler() { this.syncBack() } },
     'app.sheet'() { this.syncBack() },
     unauthorized(v) { if (v && this.browser) this.$nextTick(this.mountLogin) },
-    // a non-admin cannot stay on the admin screen, whatever put it on the stack
-    'app.current': { handler(v) { if (v === 'admin' && !this.app.isAdmin) this.app.goTab('profile') } },
+    // a non-admin cannot stay on the admin screen, whatever put it on the stack (the /admin link included)
+    'app.user'() { this.guardAdmin() },
   },
   mounted() {
     this.app.boot()
@@ -77,6 +77,11 @@ export default {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.app.sheet && this.app.canGoBack) this.app.back() })
   },
   methods: {
+    guardAdmin() {
+      if (this.app.current !== 'admin' || !this.app.user || this.app.isAdmin) return
+      this.app.goTab('home')
+      if (adminLink()) { history.replaceState(null, '', '/'); this.app.toast('У этого аккаунта нет доступа к админке', 'cry') }
+    },
     /** Telegram Login Widget. The server checks its signature and lets only the admin in. */
     async mountLogin() {
       const box = this.$refs.login

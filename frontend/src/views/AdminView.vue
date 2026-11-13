@@ -1,7 +1,7 @@
 <template>
   <div class="view adm" data-view="admin">
     <header class="adm-head">
-      <button type="button" class="adm-back glass" aria-label="Назад" @click="app.back()"><svg class="ic-s" aria-hidden="true"><use href="#i-back" /></svg></button>
+      <button type="button" class="adm-back glass" :aria-label="app.canGoBack ? 'Назад' : 'В приложение'" @click="leave"><svg class="ic-s" aria-hidden="true"><use href="#i-back" /></svg></button>
       <h2>Админка</h2>
       <button v-if="webLogin" type="button" class="adm-btn soft sm" @click="logout">Выйти</button>
     </header>
@@ -58,6 +58,12 @@ export default {
       document.getElementById('scroll')?.scrollTo({ top: 0 })
     },
     showContent(user) { this.go('content'); this.contentUser = user },
+    /** Opened by the /admin link there is nothing to go back to: the arrow leads into the app. */
+    leave() {
+      if (this.app.canGoBack) return this.app.back()
+      if (location.pathname !== '/') history.replaceState(null, '', '/')
+      this.app.goTab('home')
+    },
     logout() { webLogin.clear(); location.reload() },
   },
 }

@@ -108,6 +108,8 @@ sudo systemctl reload caddy
 
    Команду нужно выполнить заново после этого обновления: вебхук теперь подписан на `pre_checkout_query`, без этого оплата Telegram Stars не пройдёт.
 
+Ссылки на конкретный экран (профиль, подписка, модель, фотосет, раздел админки): `?startapp=<экран>` в URL web_app кнопки или `https://t.me/<бот>/<short_name>?startapp=<экран>`. Полный список экранов и куда какую ссылку вставлять: `NeuroGPT-docs/bot-links.md`, готовые ссылки с вашим доменом печатает `php artisan telegram:links`. Для прямых ссылок задайте `TELEGRAM_WEBAPP_SHORT_NAME` (short name из `/newapp`). `telegram:set-webhook` теперь также ставит кнопку меню бота на адрес вебаппа.
+
 Реферальная ссылка имеет вид `https://t.me/<бот>?start=friend_<id>`. `TELEGRAM_BOT_USERNAME` можно писать с собакой или без, в ссылку она не попадёт. Старые ссылки `ref_<id>` продолжают работать.
 
 ### 6. Оплата

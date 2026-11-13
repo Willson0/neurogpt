@@ -27,6 +27,7 @@ class TelegramSetWebhook extends Command
             return self::FAILURE;
         }
         $bot->setCommands();
+        $bot->setMenuButton('Открыть');
         $this->info("Webhook set: $url (updates: message, pre_checkout_query)");
 
         return self::SUCCESS;

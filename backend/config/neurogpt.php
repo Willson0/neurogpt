@@ -20,6 +20,9 @@ return [
         'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
         // Mini App link for the /start button, e.g. https://app.example.com
         'webapp_url' => env('TELEGRAM_WEBAPP_URL', env('APP_URL')),
+        // Short name of the Mini App from BotFather (/newapp), for links https://t.me/<bot>/<short_name>?startapp=...
+        // Empty: links use the Main App form https://t.me/<bot>?startapp=... (Main App set up in BotFather).
+        'webapp_short_name' => trim((string) env('TELEGRAM_WEBAPP_SHORT_NAME', '')),
         // How long initData is accepted after auth_date, in seconds.
         'init_data_ttl' => (int) env('TELEGRAM_INIT_DATA_TTL', 86400),
         // Browser sign-in for the admin (Telegram Login Widget): how long one sign-in stays valid, in seconds.

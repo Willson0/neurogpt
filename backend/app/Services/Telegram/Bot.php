@@ -76,12 +76,53 @@ class Bot
         return $this->call('sendDocument', array_filter(['chat_id' => $chatId, 'caption' => $caption]), ['document' => [$filename, $contents]]);
     }
 
-    public function openAppKeyboard(string $label = 'Открыть'): array
+    public function openAppKeyboard(string $label = 'Открыть', ?string $screen = null): array
     {
         return ['reply_markup' => ['inline_keyboard' => [[[
             'text' => $label,
-            'web_app' => ['url' => config('neurogpt.telegram.webapp_url')],
+            'web_app' => ['url' => self::webAppUrl($screen)],
         ]]]]];
+    }
+
+    /**
+     * Mini App URL for a web_app button that opens the app on a given screen: https://<app>/?startapp=<screen>.
+     * The screen syntax is described in frontend/src/services/deeplink.js and the README.
+     */
+    public static function webAppUrl(?string $screen = null): string
+    {
+        $url = rtrim((string) config('neurogpt.telegram.webapp_url'), '/').'/';
+        if (! self::isScreen($screen)) {
+            return $url;
+        }
+
+        return $url.'?startapp='.$screen;
+    }
+
+    /** A value the app understands as a screen: the startapp alphabet, and not a referral code. */
+    public static function isScreen(?string $value): bool
+    {
+        return is_string($value) && preg_match('/^[A-Za-z0-9_-]{1,64}$/', $value) && ! preg_match('/^(?:friend|ref)_\d+$/', $value);
+    }
+
+    /** Direct link that opens the Mini App inside Telegram, or null when the bot name is not set. */
+    public static function directLink(?string $screen = null): ?string
+    {
+        $bot = config('neurogpt.telegram.bot_username');
+        if (! $bot) {
+            return null;
+        }
+        $app = (string) config('neurogpt.telegram.webapp_short_name');
+        $base = $app !== '' ? "https://t.me/{$bot}/{$app}" : "https://t.me/{$bot}";
+
+        return self::isScreen($screen) ? "{$base}?startapp={$screen}" : ($app !== '' ? $base : "{$base}?startapp");
+    }
+
+    /** Menu button of the bot (next to the text field): opens the Mini App. */
+    public function setMenuButton(string $text = 'Открыть'): ?array
+    {
+        return $this->call('setChatMenuButton', ['menu_button' => [
+            'type' => 'web_app', 'text' => $text, 'web_app' => ['url' => self::webAppUrl()],
+        ]]);
     }
 
     public function setWebhook(string $url, string $secret): ?array

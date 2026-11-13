@@ -1,6 +1,6 @@
 <template>
   <div class="app">
-    <PlasmaCanvas :dim="!['home', 'create'].includes(app.current)" />
+    <PlasmaCanvas :dim="!['home', 'create'].includes(app.current)" :still="app.current === 'admin'" />
 
     <div v-if="app.booting && !app.user" class="boot" role="status"><Sticker name="art" :size="96" glow glow-color="--plasma-2" /></div>
     <div v-else-if="app.bootError && !app.user" class="boot">

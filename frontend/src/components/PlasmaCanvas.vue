@@ -9,7 +9,9 @@ import { reduceMotion, tokenColor } from '../services/format'
 // The app's "state light": brightens while typing and races while generating.
 export default {
   name: 'PlasmaCanvas',
-  props: { dim: Boolean },
+  // still: one frame and no animation. The admin panel is a page of glass cards, and each of them re-blurs
+  // the moving canvas under it on every frame: with the glow standing still the panel scrolls smoothly.
+  props: { dim: Boolean, still: Boolean },
   data: () => ({ energy: 0.35, t: 0, raf: 0, last: 0, cols: null }),
   computed: { app() { return useApp() } },
   mounted() {
@@ -29,6 +31,7 @@ export default {
   },
   watch: {
     'app.plasma.target'() { this.start() },
+    still() { this.start() },
   },
   methods: {
     start() {
@@ -67,7 +70,7 @@ export default {
       x.globalCompositeOperation = 'source-over'
       // the target relaxes back to idle
       if (p.target > 0.36 && p.target < 1.2) p.target = Math.max(0.35, p.target - 0.004 * k)
-      if (!reduceMotion() && !document.hidden) this.raf = requestAnimationFrame(this.frame)
+      if (!this.still && !reduceMotion() && !document.hidden) this.raf = requestAnimationFrame(this.frame)
     },
   },
 }

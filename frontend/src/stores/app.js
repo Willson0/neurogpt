@@ -4,6 +4,7 @@ import { tg } from '../services/telegram'
 import { tok, plural, checkImage } from '../services/format'
 import { bus, confetti } from '../services/bus'
 import { theme } from '../services/theme'
+import { applyLink } from '../services/deeplink'
 
 const ROOT = ['home', 'gallery', 'profile']
 const FORMATS = [
@@ -121,6 +122,8 @@ export const useApp = defineStore('app', {
           try { localStorage.setItem('ng_seen', '1') } catch { /* private mode */ }
           if (data.user.balance > 0 && data.user.stats.created === 0) this.openSheet('first')
         }
+        // a bot button or a t.me link may ask for a given screen (?startapp=...): opened once, on the first start
+        if (!this._linked) { this._linked = true; await applyLink(this) }
         this.refreshDailyBonus()
       } catch (e) {
         this.bootError = e instanceof ApiError ? e : new ApiError(0, { code: 'network' })

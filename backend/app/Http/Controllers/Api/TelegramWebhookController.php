@@ -57,8 +57,10 @@ class TelegramWebhookController extends Controller
 
         $text = trim((string) ($message['text'] ?? ''));
         if (preg_match('/^\/start(?:@\w+)?(?:\s+(\S{1,64}))?/', $text, $m)) {
-            $users->upsert($message['from'], $m[1] ?? null);   // registers the referral link before the app opens
-            $bot->sendMessage($chatId, "Привет! Здесь нейросети рисуют картинки, снимают видео и обрабатывают фото.\nНажмите кнопку, чтобы открыть приложение.", $bot->openAppKeyboard('Открыть NeuroGPT'));
+            $param = $m[1] ?? null;
+            $users->upsert($message['from'], $param);   // registers the referral link before the app opens
+            // t.me/<bot>?start=<screen> (e.g. start=plans-pro): the button opens the app right on that screen
+            $bot->sendMessage($chatId, "Привет! Здесь нейросети рисуют картинки, снимают видео и обрабатывают фото.\nНажмите кнопку, чтобы открыть приложение.", $bot->openAppKeyboard('Открыть NeuroGPT', Bot::isScreen($param) ? $param : null));
         } elseif (preg_match('/^\/(paysupport|help)\b/', $text)) {
             $support = config('neurogpt.telegram.support_url');
             $bot->sendMessage($chatId, "Вопросы по оплате и возвратам.\nНапишите, что случилось, и приложите дату платежа".($support ? ": $support" : ' в этот чат, мы ответим здесь.'));
@@ -82,7 +84,7 @@ class TelegramWebhookController extends Controller
             $what = $done->purpose === 'plan'
                 ? 'Подписка '.config("neurogpt.plans.{$done->plan}.name").' активна, начислено '.$done->tokens.' токенов.'
                 : 'Начислено '.$done->tokens.' токенов.';
-            $bot->sendMessage($chatId, 'Оплата прошла. '.$what, $bot->openAppKeyboard('Открыть NeuroGPT'));
+            $bot->sendMessage($chatId, 'Оплата прошла. '.$what, $bot->openAppKeyboard('Открыть NeuroGPT', 'profile'));
         } else {
             // The amount did not match the order: the Stars go back to the user.
             $bot->refundStars((int) $message['from']['id'], $chargeId);

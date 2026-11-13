@@ -12,9 +12,6 @@
         <button type="submit" class="adm-btn" style="align-self:end" :disabled="busy">Добавить</button>
       </form>
     </template>
-    <div v-else class="adm-bar">
-      <label class="adm-f">Статус<select v-model="status" @change="reload"><option value="">Любой</option><option value="succeeded">Оплачен</option><option value="pending">Ожидает</option><option value="canceled">Отменён</option></select></label>
-    </div>
     <p v-if="tab === 'users'" class="adm-note">Найдено: {{ num(total) }}</p>
 
     <div v-if="loading && !items.length" class="spinner-row">Загружаем…</div>
@@ -52,13 +49,14 @@
           </form>
           <div class="adm-actions">
             <button type="button" class="adm-btn soft sm" @click="$emit('content', String(u.telegram_id))">Работы пользователя</button>
+            <button type="button" class="adm-btn soft sm" @click="$emit('payments', String(u.telegram_id))">Платежи пользователя</button>
             <button v-if="!u.is_admin" type="button" :class="['adm-btn', 'sm', u.is_blocked ? 'soft' : 'danger']" :disabled="busy" @click="block(u)">{{ u.is_blocked ? 'Разблокировать' : 'Заблокировать' }}</button>
           </div>
         </div>
       </div>
     </div>
 
-    <ul v-else-if="tab === 'admins'" class="list glass">
+    <ul v-else class="list glass">
       <li v-for="a in items" :key="a.telegram_id">
         <div class="row">
           <span :class="['sq', a.is_owner ? 'hot' : '']"><svg class="ic-s" aria-hidden="true"><use :href="a.is_owner ? '#i-crown' : '#i-user'" /></svg></span>
@@ -71,15 +69,6 @@
       </li>
     </ul>
 
-    <ul v-else class="list glass">
-      <li v-for="p in items" :key="p.id">
-        <div class="row">
-          <span :class="['sq', p.status === 'succeeded' ? 'hot' : '']"><svg class="ic-s" aria-hidden="true"><use :href="p.purpose === 'plan' ? '#i-crown' : '#i-wallet'" /></svg></span>
-          <span class="t"><b>{{ p.purpose === 'plan' ? `Подписка ${plans[p.plan] || p.plan}, ${p.period === 'year' ? 'год' : 'месяц'}` : `${num(p.tokens)} токенов` }}</b><span>{{ who(p.user) }} · {{ when(p.created_at) }}</span></span>
-          <span class="end"><span :class="['adm-pill', p.status === 'succeeded' ? 'ok' : p.status === 'canceled' ? 'bad' : '']">{{ payStatus[p.status] }}</span>{{ num(p.amount) }} {{ p.currency === 'XTR' ? '⭐' : '₽' }}</span>
-        </div>
-      </li>
-    </ul>
     <button v-if="next" type="button" class="adm-btn soft" :disabled="loading" @click="load(next)">{{ loading ? 'Загружаем…' : 'Показать ещё' }}</button>
   </section>
 </template>
@@ -91,11 +80,10 @@ import { section, PLANS } from './shared'
 export default {
   name: 'AdminUsers',
   mixins: [section],
-  emits: ['content'],
+  emits: ['content', 'payments'],
   data: () => ({
-    tabs: { users: 'Пользователи', payments: 'Платежи', admins: 'Администраторы' }, tab: 'users', plans: PLANS,
-    payStatus: { succeeded: 'оплачен', pending: 'ожидает', canceled: 'отменён' },
-    q: '', filter: '', status: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: 30, seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
+    tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: 'users', plans: PLANS,
+    q: '', filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: 30, seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
   }),
   mounted() { this.reload() },
   methods: {
@@ -103,8 +91,7 @@ export default {
     load(page) {
       const seq = ++this.seq
       return this.fetch(async () => {
-        const r = this.tab === 'users' ? await adminApi.list('users', { q: this.q, filter: this.filter, page })
-          : this.tab === 'admins' ? await adminApi.list('admins') : await adminApi.list('payments', { status: this.status, page })
+        const r = this.tab === 'users' ? await adminApi.list('users', { q: this.q, filter: this.filter, page }) : await adminApi.list('admins')
         if (this.tab === 'admins') this.canManage = r.can_manage
         if (seq !== this.seq) return
         this.items = page === 1 ? r.data : [...this.items, ...r.data]

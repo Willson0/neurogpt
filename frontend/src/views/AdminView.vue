@@ -9,7 +9,7 @@
       <button v-for="s in sections" :key="s.id" type="button" class="chip" :aria-pressed="String(current === s.id)" @click="go(s.id)">{{ s.name }}</button>
     </nav>
     <div class="adm-body">
-      <component :is="views[current]" :key="current + contentUser" :initial-user="current === 'content' ? contentUser : undefined" @content="showContent" />
+      <component :is="views[current]" :key="current + contentUser" :initial-user="['content', 'payments'].includes(current) ? contentUser : undefined" @content="showContent" @payments="showPayments" />
     </div>
   </div>
 </template>
@@ -28,19 +28,20 @@ import AdminPricing from '../admin/AdminPricing.vue'
 import AdminSettings from '../admin/AdminSettings.vue'
 import AdminTheme from '../admin/AdminTheme.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
+import AdminPayments from '../admin/AdminPayments.vue'
 
 export default {
   name: 'AdminView',
   data: () => ({
     views: markRaw({
       dashboard: AdminDashboard, content: AdminContent, models: AdminModels, tools: AdminTools, showcase: AdminShowcase,
-      pricing: AdminPricing, settings: AdminSettings, theme: AdminTheme, users: AdminUsers,
+      pricing: AdminPricing, settings: AdminSettings, theme: AdminTheme, users: AdminUsers, payments: AdminPayments,
     }),
     current: 'dashboard', contentUser: '',
     sections: [
       { id: 'dashboard', name: 'Обзор' }, { id: 'content', name: 'Работы и промпты' }, { id: 'models', name: 'Модели' }, { id: 'tools', name: 'Инструменты' },
       { id: 'showcase', name: 'Фотосеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
-      { id: 'theme', name: 'Цвета' }, { id: 'users', name: 'Пользователи' },
+      { id: 'payments', name: 'Платежи и ЮKassa' }, { id: 'theme', name: 'Цвета' }, { id: 'users', name: 'Пользователи' },
     ],
   }),
   computed: {
@@ -58,6 +59,7 @@ export default {
       document.getElementById('scroll')?.scrollTo({ top: 0 })
     },
     showContent(user) { this.go('content'); this.contentUser = user },
+    showPayments(user) { this.go('payments'); this.contentUser = user },
     /** Opened by the /admin link there is nothing to go back to: the arrow leads into the app. */
     leave() {
       if (this.app.canGoBack) return this.app.back()

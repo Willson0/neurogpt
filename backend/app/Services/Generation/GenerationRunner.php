@@ -146,10 +146,12 @@ class GenerationRunner
                 'status' => 'failed', 'finished_at' => now(),
                 'error' => $filtered ? 'content_filtered' : ($unavailable ? 'unavailable' : 'failed'),
             ]);
-            $this->wallet->credit(
-                User::findOrFail($locked->user_id), $locked->cost, 'refund', 'Возврат',
-                ['generation_id' => $locked->id], $filtered ? 'Запрос не прошёл фильтр' : ($unavailable ? 'Генерация пока недоступна' : 'Модель перегружена'),
-            );
+            if ($locked->cost > 0) {
+                $this->wallet->credit(
+                    User::findOrFail($locked->user_id), $locked->cost, 'refund', 'Возврат',
+                    ['generation_id' => $locked->id], $filtered ? 'Запрос не прошёл фильтр' : ($unavailable ? 'Генерация пока недоступна' : 'Модель перегружена'),
+                );
+            }
 
             return true;
         });

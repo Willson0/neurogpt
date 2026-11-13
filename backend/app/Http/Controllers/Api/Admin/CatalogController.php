@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\TooManyActive;
+use App\Http\Resources\GenerationResource;
 use App\Models\AiModel;
+use App\Models\Generation;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Admin\Settings;
+use App\Services\Generation\GenerationService;
 use App\Services\Generation\ImageNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -273,6 +277,48 @@ class CatalogController extends Controller
         $photoset->delete();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Starts a free generation with this photoset's prompt, so the admin gets a real example for the cover.
+     * A photo is optional: without one the model invents a person. The app polls /api/generations/{id} as usual.
+     */
+    public function photosetExample(Request $request, Photoset $photoset, GenerationService $service)
+    {
+        $request->validate([
+            'file' => ['nullable', 'file', 'max:'.config('neurogpt.upload_max_kb'), 'mimetypes:image/jpeg,image/png,image/webp'],
+            'model' => ['nullable', 'string', 'max:32', 'regex:/^[a-z0-9_-]+$/'],
+        ]);
+        abort_unless($photoset->is_active, 422, 'Сначала включите фотосет');
+
+        try {
+            [$generation] = $service->create($request->user(), [
+                'kind' => 'image', 'photoset_id' => $photoset->id, 'format' => '9:16', 'model' => $request->input('model'),
+                'prompt' => $request->hasFile('file') ? '' : 'No reference photo is attached for this example: show a fictional adult person who fits the scene.',
+            ], $request->file('file'), free: true);
+        } catch (TooManyActive $e) {
+            throw ValidationException::withMessages(['file' => 'Дождитесь окончания предыдущих генераций']);
+        }
+
+        return response()->json(['data' => new GenerationResource($generation)], 201);
+    }
+
+    /** Makes the admin's own finished example the cover of the photoset. */
+    public function photosetCover(Request $request, Photoset $photoset)
+    {
+        $data = $request->validate(['generation_id' => ['required', 'integer']]);
+        $g = Generation::where('user_id', $request->user()->id)->where('photoset_id', $photoset->id)->where('status', 'done')
+            ->whereNotNull('result_path')->find($data['generation_id']);
+        $disk = Storage::disk('public');
+        if (! $g || ! $disk->exists($g->result_path)) {
+            throw ValidationException::withMessages(['generation_id' => 'Пример не найден или ещё не готов']);
+        }
+        // A copy: the cover stays even if the generation is deleted later.
+        $path = 'covers/'.Str::uuid().'.'.strtolower(pathinfo($g->result_path, PATHINFO_EXTENSION));
+        $disk->copy($g->result_path, $path);
+        $photoset->update(['cover_url' => '/storage/'.$path, 'edited_at' => now()]);
+
+        return response()->json(['data' => $this->photoset($photoset)]);
     }
 
     private function photoset(Photoset $p): array

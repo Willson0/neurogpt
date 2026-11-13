@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -28,6 +29,8 @@ class Settings
         'providers.openai.text_model' => false,
         'providers.openai.image_model' => false,
         'providers.kie.translate' => false,
+        // YooKassa shop settings. The secret key is stored encrypted (secret_key_enc) and changed only by an owner.
+        'yookassa' => true,
         // Telegram ids of admins added in the panel. Changed only through /api/admin/admins, by an owner.
         'admins' => false,
         // Catalog rows the admin deleted, so the seeder does not bring them back.
@@ -101,8 +104,28 @@ class Settings
         self::put('deleted', array_values(array_unique([...(array) self::get('deleted'), $tag])));
     }
 
+    /** The value exactly as stored, without the defaults from config. */
+    public static function stored(string $key): mixed
+    {
+        $json = DB::table('settings')->where('key', $key)->value('value');
+
+        return $json === null ? null : json_decode((string) $json, true);
+    }
+
     private static function set(string $key, mixed $value): void
     {
+        if ($key === 'yookassa' && is_array($value)) {
+            // Only the encrypted form is stored; config gets the plain key for the API client.
+            $enc = $value['secret_key_enc'] ?? null;
+            unset($value['secret_key_enc'], $value['secret_key']);
+            if ($enc) {
+                try {
+                    $value['secret_key'] = Crypt::decryptString($enc);
+                } catch (Throwable) {
+                    // APP_KEY changed: the key must be entered again, the one from .env stays in use
+                }
+            }
+        }
         if (self::KEYS[$key] && is_array($value)) {
             $value = array_replace((array) config("neurogpt.$key"), $value);
         }

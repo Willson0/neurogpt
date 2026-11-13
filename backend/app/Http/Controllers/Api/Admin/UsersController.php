@@ -153,30 +153,6 @@ class UsersController extends Controller
         ])->all();
     }
 
-    public function payments(Request $request)
-    {
-        $f = $request->validate([
-            'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled'])],
-            'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'],
-        ]);
-        $q = Payment::query()->with('user');
-        if (! empty($f['status'])) {
-            $q->where('status', $f['status']);
-        }
-        $this->period($q, $f);
-        $page = $q->latest('id')->paginate(40);
-
-        return response()->json([
-            'data' => collect($page->items())->map(fn (Payment $p) => [
-                'id' => $p->id, 'status' => $p->status, 'provider' => $p->provider, 'purpose' => $p->purpose, 'tokens' => $p->tokens,
-                'plan' => $p->plan, 'period' => $p->period, 'amount' => (float) $p->amount, 'currency' => $p->currency,
-                'user' => $p->user ? ['id' => $p->user->id, 'telegram_id' => $p->user->telegram_id, 'name' => $p->user->displayName(), 'username' => $p->user->username] : null,
-                'created_at' => $p->created_at?->toIso8601String(),
-            ]),
-            'next_page' => $page->hasMorePages() ? $page->currentPage() + 1 : null,
-        ]);
-    }
-
     public function stats(Request $request)
     {
         $f = $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);

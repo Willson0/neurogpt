@@ -267,6 +267,91 @@ class AdminTest extends TestCase
         $this->as(42)->getJson('/api/me')->assertJsonPath('is_admin', false);
     }
 
+    public function test_photoset_example_is_generated_free_and_becomes_the_cover(): void
+    {
+        $admin = $this->user(self::ADMIN, 0);
+        $set = Photoset::orderBy('id')->firstOrFail();
+        $this->assertNull($set->cover_url);
+
+        // without a photo, free of charge even with an empty balance
+        $id = $this->admin()->postJson("/api/admin/photosets/{$set->id}/example")->assertCreated()->assertJsonPath('data.cost', 0)->json('data.id');
+        $g = Generation::findOrFail($id);
+        $this->assertSame('done', $g->status);
+        $this->assertSame(0, $admin->refresh()->balance);
+        $this->assertSame(0, $admin->transactions()->where('generation_id', $id)->count());
+        $this->as(self::ADMIN)->post("/api/admin/photosets/{$set->id}/example", ['file' => UploadedFile::fake()->image('me.jpg', 300, 300)])->assertCreated();
+
+        $url = $this->admin()->postJson("/api/admin/photosets/{$set->id}/cover", ['generation_id' => $id])->assertOk()->json('data.cover_url');
+        $this->assertStringStartsWith('/storage/covers/', $url);
+        Storage::disk('public')->assertExists(substr($url, 9));
+        $this->admin()->deleteJson("/api/admin/generations/$id")->assertOk();
+        Storage::disk('public')->assertExists(substr($url, 9));
+
+        // someone else's picture or another photoset's example cannot be used
+        $this->user(2, 100);
+        $other = $this->as(2)->post('/api/generations', ['kind' => 'image', 'photoset_id' => $set->id, 'file' => UploadedFile::fake()->image('me.jpg', 300, 300)])->assertCreated()->json('data.0.id');
+        $this->admin()->postJson("/api/admin/photosets/{$set->id}/cover", ['generation_id' => $other])->assertStatus(422);
+        $this->as(2)->postJson("/api/admin/photosets/{$set->id}/example")->assertStatus(403);
+
+        $this->seed(DatabaseSeeder::class);
+        $this->assertSame($url, $set->refresh()->cover_url);
+        $this->assertSame($url, collect($this->as(2)->getJson('/api/bootstrap')->json('photosets'))->firstWhere('id', $set->id)['cover_url']);
+    }
+
+    public function test_yookassa_is_configured_by_the_main_admin_and_the_secret_stays_on_the_server(): void
+    {
+        config(['neurogpt.yookassa.shop_id' => null, 'neurogpt.yookassa.secret_key' => null]);
+        $this->user(42);
+        $this->admin()->postJson('/api/admin/admins', ['user' => '42'])->assertCreated();
+        $body = ['shop_id' => '123456', 'secret_key' => 'live_SUPERSECRETKEY1234', 'return_url' => 'https://app.example.com', 'verify_ip' => true,
+            'receipt' => ['enabled' => true, 'email' => 'shop@example.com', 'tax_system_code' => 2, 'vat_code' => 1]];
+
+        $this->admin()->getJson('/api/admin/yookassa')->assertOk()->assertJsonPath('data.has_secret', false)->assertJsonPath('data.methods.card', false);
+        $this->as(42)->putJson('/api/admin/yookassa', $body)->assertStatus(403);
+        $this->as(42)->postJson('/api/admin/yookassa/check')->assertStatus(403);
+        $this->admin()->putJson('/api/admin/yookassa', ['receipt' => ['enabled' => true, 'email' => null]] + $body)->assertStatus(422);
+
+        $res = $this->admin()->putJson('/api/admin/yookassa', $body)->assertOk()
+            ->assertJsonPath('data.shop_id', '123456')->assertJsonPath('data.has_secret', true)->assertJsonPath('data.secret_hint', '••••1234')
+            ->assertJsonPath('data.secret_source', 'admin')->assertJsonPath('data.methods.card', true)->assertJsonPath('data.receipt.tax_system_code', 2);
+        $this->assertStringNotContainsString('SUPERSECRET', $res->getContent());
+        $this->assertStringNotContainsString('SUPERSECRET', $this->as(42)->getJson('/api/admin/yookassa')->assertOk()->assertJsonPath('can_manage', false)->getContent());
+        $this->assertStringNotContainsString('SUPERSECRET', $this->admin()->getJson('/api/admin/settings')->getContent());
+        $this->assertStringNotContainsString('SUPERSECRET', (string) \DB::table('settings')->where('key', 'yookassa')->value('value'));
+        $this->admin()->putJson('/api/admin/settings', ['values' => ['yookassa' => ['shop_id' => '1']]])->assertStatus(422);
+
+        // an empty secret keeps the saved one; a fresh process reads everything back
+        $this->admin()->putJson('/api/admin/yookassa', ['secret_key' => '', 'shop_id' => '654321'] + $body)->assertOk()->assertJsonPath('data.secret_hint', '••••1234');
+        config(['neurogpt.yookassa.shop_id' => null, 'neurogpt.yookassa.secret_key' => null]);
+        Settings::apply();
+        $this->assertSame('654321', config('neurogpt.yookassa.shop_id'));
+        $this->assertSame('live_SUPERSECRETKEY1234', config('neurogpt.yookassa.secret_key'));
+        $this->assertNotEmpty(config('neurogpt.yookassa.allowed_ips'));
+
+        // payments really go out with these credentials and a receipt
+        Http::fake([
+            'api.yookassa.ru/v3/me' => Http::response(['account_id' => '654321', 'test' => false, 'status' => 'enabled']),
+            'api.yookassa.ru/v3/payments' => Http::response(['id' => 'yk_1', 'status' => 'pending', 'confirmation' => ['confirmation_url' => 'https://yoomoney.ru/pay/1']]),
+            'api.yookassa.ru/v3/payments/yk_1' => Http::response(['id' => 'yk_1', 'status' => 'succeeded', 'paid' => true, 'amount' => ['value' => '450.00', 'currency' => 'RUB'],
+                'income_amount' => ['value' => '434.25', 'currency' => 'RUB'], 'payment_method' => ['type' => 'bank_card', 'title' => 'Bank card *4444']]),
+        ]);
+        $this->admin()->postJson('/api/admin/yookassa/check')->assertOk()->assertJsonPath('ok', true)->assertJsonPath('account_id', '654321');
+        $this->user(2, 0);
+        $pid = $this->as(2)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'card'])->assertCreated()->json('data.id');
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/payments') && $r->hasHeader('Authorization', 'Basic '.base64_encode('654321:live_SUPERSECRETKEY1234')) && $r['receipt']['customer']['email'] === 'shop@example.com');
+
+        // payment details and a manual status check
+        $this->admin()->getJson('/api/admin/payments')->assertOk()->assertJsonPath('summary.total', 1)->assertJsonPath('summary.pending', 1)->assertJsonPath('data.0.provider_payment_id', 'yk_1');
+        $this->as(2)->postJson("/api/admin/payments/$pid/sync")->assertStatus(403);
+        $this->admin()->postJson("/api/admin/payments/$pid/sync")->assertOk()->assertJsonPath('data.status', 'succeeded')
+            ->assertJsonPath('data.method_title', 'Bank card *4444')->assertJsonPath('data.income', 434.25);
+        $this->assertSame(500, User::where('telegram_id', 2)->value('balance'));
+        $this->admin()->getJson('/api/admin/payments?status=succeeded&provider=yookassa&user=nik2')->assertJsonPath('summary.succeeded', 1)
+            ->assertJsonPath('summary.by_currency.RUB', 450)->assertJsonPath('summary.tokens', 500)->assertJsonPath('summary.payers', 1);
+        $this->admin()->getJson('/api/admin/payments?user=yk_1')->assertJsonPath('summary.total', 1);
+        $this->admin()->getJson('/api/admin/payments?provider=stars')->assertJsonPath('summary.total', 0);
+    }
+
     public function test_browser_login_widget_works_for_the_admin_only(): void
     {
         $sign = function (int $id, int $age = 0, string $token = self::TOKEN): string {

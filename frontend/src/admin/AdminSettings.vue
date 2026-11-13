@@ -24,7 +24,7 @@
           <label class="adm-f">Текстовая модель (улучшение и перевод промптов)<input v-model.trim="v['providers.openai.text_model']" required maxlength="120"></label>
           <label class="adm-f">Модель картинок по умолчанию для новых инструментов<input v-model.trim="v['providers.openai.image_model']" required maxlength="120"></label>
         </div>
-        <p class="adm-note">Ключи API, токен бота и данные ЮKassa остаются в файле .env на сервере: через админку они не меняются и не показываются.</p>
+        <p class="adm-note">Ключи API и токен бота остаются в файле .env на сервере: через админку они не меняются и не показываются. ЮKassa настраивается в разделе «Платежи и ЮKassa».</p>
         <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
       </form>
 

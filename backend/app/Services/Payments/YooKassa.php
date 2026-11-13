@@ -6,7 +6,7 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
-/** Thin client for the YooKassa REST API. Credentials come from .env only. */
+/** Thin client for the YooKassa REST API. Credentials come from .env or from the admin panel (stored encrypted). */
 class YooKassa
 {
     private function http(?string $idempotenceKey = null): PendingRequest
@@ -14,7 +14,7 @@ class YooKassa
         $shop = config('neurogpt.yookassa.shop_id');
         $secret = config('neurogpt.yookassa.secret_key');
         if (! $shop || ! $secret) {
-            throw new RuntimeException('YooKassa is not configured: set YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY');
+            throw new RuntimeException('YooKassa is not configured: set the shop id and the secret key in the admin panel or in .env');
         }
 
         $req = Http::withBasicAuth($shop, $secret)->baseUrl(config('neurogpt.yookassa.api_url'))->timeout(30)->acceptJson();
@@ -36,6 +36,12 @@ class YooKassa
         }
 
         return $this->http($idempotenceKey)->post('/payments', $body)->throw()->json();
+    }
+
+    /** The shop behind the credentials: used by the admin panel to check that they work. */
+    public function me(): array
+    {
+        return $this->http()->get('/me')->throw()->json();
     }
 
     public function getPayment(string $id): array

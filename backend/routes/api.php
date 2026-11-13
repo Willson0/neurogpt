@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Admin\CatalogController;
 use App\Http\Controllers\Api\Admin\ContentController;
+use App\Http\Controllers\Api\Admin\PaymentsController;
 use App\Http\Controllers\Api\Admin\SettingsController;
 use App\Http\Controllers\Api\Admin\UsersController;
 use App\Http\Controllers\Api\BootstrapController;
@@ -70,6 +71,8 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::post('photosets', [CatalogController::class, 'savePhotoset']);
     Route::patch('photosets/{photoset}', [CatalogController::class, 'savePhotoset'])->whereNumber('photoset');
     Route::delete('photosets/{photoset}', [CatalogController::class, 'destroyPhotoset'])->whereNumber('photoset');
+    Route::post('photosets/{photoset}/example', [CatalogController::class, 'photosetExample'])->whereNumber('photoset')->middleware('throttle:generate');
+    Route::post('photosets/{photoset}/cover', [CatalogController::class, 'photosetCover'])->whereNumber('photoset');
 
     Route::get('news', [CatalogController::class, 'news']);
     Route::post('news', [CatalogController::class, 'saveNews']);
@@ -86,7 +89,12 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::get('users', [UsersController::class, 'index']);
     Route::patch('users/{user}', [UsersController::class, 'update'])->whereNumber('user');
     Route::post('users/{user}/balance', [UsersController::class, 'balance'])->whereNumber('user');
-    Route::get('payments', [UsersController::class, 'payments']);
+    Route::get('payments', [PaymentsController::class, 'index']);
+    Route::post('payments/{payment}/sync', [PaymentsController::class, 'sync'])->whereNumber('payment');
+    // Reading is open to every admin (the secret key is never returned); changing is checked inside for the main admin.
+    Route::get('yookassa', [PaymentsController::class, 'yookassa']);
+    Route::put('yookassa', [PaymentsController::class, 'saveYookassa']);
+    Route::post('yookassa/check', [PaymentsController::class, 'checkYookassa']);
 
     // Reading is open to every admin; adding and removing is checked inside for the main admin.
     Route::get('admins', [UsersController::class, 'admins']);

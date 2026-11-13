@@ -4,7 +4,14 @@
       <div class="filters grow"><button v-for="(n, k) in tabs" :key="k" type="button" class="chip" :aria-pressed="String(tab === k)" @click="tab = k; cancel()">{{ n }}</button></div>
       <button type="button" class="adm-btn sm" @click="add">{{ tab === 'photosets' ? 'Добавить фотосет' : 'Добавить карточку' }}</button>
     </div>
-    <p class="adm-note">{{ tab === 'photosets' ? 'Готовые идеи для фото пользователя. Промпт уходит модели вместе с фотографией.' : 'Карточки новостей на главном экране.' }}</p>
+    <p class="adm-note">{{ tab === 'photosets' ? 'Готовые идеи для фото пользователя. Промпт уходит модели вместе с фотографией. Картинка-пример показывает людям, что получится.' : 'Карточки новостей на главном экране.' }}</p>
+    <div v-if="tab === 'photosets' && missing.length && !loading" class="adm-card glass">
+      <div class="adm-bar">
+        <p class="grow" style="font-size:var(--text-2)">{{ bulk.on ? `Создаём примеры: ${bulk.done} из ${bulk.total}` : `Без картинки-примера: ${missing.length}` }}</p>
+        <button v-if="!bulk.on" type="button" class="adm-btn sm" :disabled="!!gen.id" @click="generateAll">Сгенерировать для всех</button>
+        <button v-else type="button" class="adm-btn soft sm" @click="bulk.stop = true">Остановить</button>
+      </div>
+    </div>
     <div v-if="loading" class="spinner-row">Загружаем…</div>
     <div v-else-if="failed" class="empty pad"><h3>Не получилось загрузить</h3><button type="button" class="pill-btn" @click="load">Повторить</button></div>
     <div v-else>
@@ -23,12 +30,24 @@
             <label class="adm-f">Узор обложки (число)<input v-model.number="f.seed" type="number" min="0" max="100000"></label>
             <label class="adm-f full">Описание для пользователя<textarea v-model.trim="f.description" maxlength="1000" rows="2" /></label>
             <label class="adm-f full">Промпт для модели<textarea v-model.trim="f.prompt" required maxlength="6000" rows="6" /></label>
-            <div class="adm-f full">Обложка
-              <div class="adm-bar">
-                <img v-if="f.cover_url" class="adm-thumb" :src="f.cover_url" alt="">
-                <input v-model.trim="f.cover_url" class="adm-in grow" placeholder="Ссылка https://… или загрузите файл" maxlength="255" aria-label="Ссылка на обложку">
-                <label class="adm-btn soft sm" style="display:inline-flex;align-items:center;cursor:pointer">Загрузить<input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" @change="upload"></label>
+            <div class="adm-f full">Картинка-пример (обложка фотосета в приложении)
+              <div class="adm-cover">
+                <div class="adm-cover-img">
+                  <img v-if="f.cover_url" :src="f.cover_url" alt="Текущий пример">
+                  <span v-else>Пока заглушка</span>
+                  <span v-if="gen.id === it.id" class="adm-cover-busy">Генерируем…</span>
+                </div>
+                <div class="adm-cover-side">
+                  <template v-if="it.id">
+                    <button type="button" class="adm-btn sm" :disabled="!!gen.id" @click="generate(it)">{{ f.cover_url ? 'Сгенерировать другой' : 'Сгенерировать пример' }}</button>
+                    <label :class="['adm-btn', 'soft', 'sm', gen.id ? 'off' : '']" style="display:inline-flex;align-items:center;cursor:pointer">Сгенерировать по фото<input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" :disabled="!!gen.id" @change="generateFrom(it, $event)"></label>
+                  </template>
+                  <label class="adm-btn soft sm" style="display:inline-flex;align-items:center;cursor:pointer">Загрузить свою<input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" @change="upload"></label>
+                  <button v-if="f.cover_url" type="button" class="adm-btn danger sm" @click="f.cover_url = ''">Убрать</button>
+                  <span class="adm-note">{{ it.id ? 'Пример создаётся вашей моделью по промпту этого фотосета, бесплатно для администратора. Обычно это до минуты. Сначала сохраните промпт, если меняли его.' : 'Сохраните фотосет, и здесь появится кнопка генерации примера.' }}</span>
+                </div>
               </div>
+              <input v-model.trim="f.cover_url" class="adm-in" placeholder="Или ссылка https://…" maxlength="255" aria-label="Ссылка на картинку">
             </div>
             <label class="adm-check"><input v-model="f.is_active" type="checkbox">Показывать в приложении</label>
             <label class="adm-check"><input v-model="f.is_trending" type="checkbox">В блоке «Тренды»</label>
@@ -57,8 +76,8 @@
 </template>
 
 <script>
-import { adminApi } from '../services/api'
-import { section } from './shared'
+import { adminApi, api, ApiError } from '../services/api'
+import { section, errorText } from './shared'
 
 const local = (iso) => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16) }
 
@@ -66,10 +85,12 @@ export default {
   name: 'AdminShowcase',
   mixins: [section],
   data: () => ({
-    tabs: { photosets: 'Фотосеты', news: 'Новости' }, tab: 'photosets', items: { photosets: [], news: [] }, edit: null, f: {}, confirming: false,
+    tabs: { photosets: 'Фотосеты', news: 'Новости' }, tab: 'photosets', items: { photosets: [], news: [] }, edit: null, f: {}, confirming: false, gen: { id: null }, bulk: { on: false, done: 0, total: 0, stop: false },
     stickers: ['art', 'coin', 'crown', 'cry', 'fire', 'gem', 'gift', 'heart', 'hourglass', 'hundred', 'magic', 'money', 'moneybag', 'party', 'robot', 'rocket', 'sleep', 'sparkles', 'star', 'starstruck', 'thinking', 'wave'],
   }),
+  computed: { missing() { return this.items.photosets.filter((p) => p.id && p.is_active && !p.cover_url) } },
   mounted() { this.load() },
+  beforeUnmount() { this.bulk.stop = true; this.gone = true },
   methods: {
     load() {
       return this.fetch(async () => {
@@ -101,6 +122,45 @@ export default {
       const file = e.target.files[0]
       e.target.value = ''
       if (file) return this.run(async () => { this.f.cover_url = (await adminApi.upload(file)).url }, 'Обложка загружена')
+    },
+    generateFrom(it, e) {
+      const file = e.target.files[0]
+      e.target.value = ''
+      if (file) return this.generate(it, file)
+    },
+    /** Runs the photoset prompt on the server, waits for the picture and makes it the cover. */
+    async makeExample(it, file) {
+      this.gen = { id: it.id }
+      try {
+        let g = (await adminApi.example(it.id, file)).data
+        for (let i = 0; i < 150 && !this.gone && ['queued', 'processing'].includes(g.status); i++) {
+          await new Promise((r) => setTimeout(r, 2000))
+          g = (await api.generation(g.id)).data
+        }
+        if (g.status !== 'done') throw new ApiError(422, { message: g.error === 'content_filtered' ? 'Модель отклонила запрос, попробуйте ещё раз или измените промпт' : g.error === 'unavailable' ? 'Модель картинок сейчас недоступна, проверьте провайдера' : 'Не получилось создать пример, попробуйте ещё раз' })
+        const saved = (await adminApi.useExample(it.id, g.id)).data
+        it.cover_url = saved.cover_url
+        if (this.edit === it) this.f.cover_url = saved.cover_url
+        return true
+      } finally {
+        this.gen = { id: null }
+      }
+    },
+    async generate(it, file = null) {
+      try { await this.makeExample(it, file); this.app.toast('Пример готов и поставлен на обложку'); this.app.reloadCatalog() } catch (e) { this.app.toast(errorText(e), 'cry') }
+    },
+    async generateAll() {
+      const list = [...this.missing]
+      this.bulk = { on: true, done: 0, total: list.length, stop: false }
+      let failed = 0
+      for (const it of list) {
+        if (this.bulk.stop) break
+        try { await this.makeExample(it, null) } catch { failed++ }
+        this.bulk.done++
+      }
+      this.bulk.on = false
+      this.app.reloadCatalog()
+      this.app.toast(failed ? `Готово, не получилось: ${failed}. Можно повторить.` : 'Примеры готовы', failed ? 'cry' : null)
     },
     async save() {
       const { id, ...body } = this.f

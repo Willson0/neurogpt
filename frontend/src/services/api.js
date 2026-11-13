@@ -92,5 +92,11 @@ export const adminApi = {
   remove: (what, id) => request('DELETE', `/admin/${what}/${id}`),
   upload: (file) => { const form = new FormData(); form.append('file', file); return request('POST', '/admin/upload', { form }) },
   input: (id) => blobUrl(`/admin/generations/${id}/input`),
+  example: (photosetId, file) => { const form = new FormData(); if (file) form.append('file', file); return request('POST', `/admin/photosets/${photosetId}/example`, { form }) },
+  useExample: (photosetId, generationId) => request('POST', `/admin/photosets/${photosetId}/cover`, { json: { generation_id: generationId } }),
+  yookassa: () => request('GET', '/admin/yookassa'),
+  saveYookassa: (body) => request('PUT', '/admin/yookassa', { json: body }),
+  checkYookassa: () => request('POST', '/admin/yookassa/check'),
+  syncPayment: (id) => request('POST', `/admin/payments/${id}/sync`),
   balance: (id, amount, comment) => request('POST', `/admin/users/${id}/balance`, { json: { amount, comment } }),
 }

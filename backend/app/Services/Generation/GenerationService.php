@@ -26,11 +26,12 @@ class GenerationService
      * Charges the balance and queues the work.
      *
      * @param  array{kind:string, model?:?string, prompt?:?string, photoset_id?:?int, tool?:?string, option?:?string, format?:?string, duration?:?int, count?:?int, style?:?string, negative?:?string, source_generation_id?:?int}  $data
+     * @param  bool  $free  nothing is charged (admin examples)
      * @return list<Generation>
      *
      * @throws InsufficientBalance|ModelLocked|TooManyActive|ValidationException
      */
-    public function create(User $user, array $data, ?UploadedFile $file = null): array
+    public function create(User $user, array $data, ?UploadedFile $file = null, bool $free = false): array
     {
         $kind = $data['kind'];
         $photoset = ! empty($data['photoset_id']) ? Photoset::active()->findOrFail($data['photoset_id']) : null;
@@ -53,6 +54,10 @@ class GenerationService
             'song' => (int) ($model->price * max(1, intdiv((int) ($params['duration'] ?? 30), 30))),
             default => $model->price,
         };
+        if ($free) {
+            // An admin making an example picture for a photoset is not charged.
+            $unit = 0;
+        }
 
         $limit = (int) config('neurogpt.limits.active_generations');
         $active = Generation::where('user_id', $user->id)->whereIn('status', ['queued', 'processing'])->count();
@@ -76,7 +81,9 @@ class GenerationService
                         'params' => $params, 'input_path' => $inputPath, 'cost' => $unit, 'status' => 'queued',
                     ]);
                     $g->setRelation('photoset', $photoset);
-                    $this->wallet->debit($user, $unit, $g->title(), ['generation_id' => $g->id], $model->name);
+                    if ($unit > 0) {
+                        $this->wallet->debit($user, $unit, $g->title(), ['generation_id' => $g->id], $model->name);
+                    }
                     $rows[] = $g;
                 }
 

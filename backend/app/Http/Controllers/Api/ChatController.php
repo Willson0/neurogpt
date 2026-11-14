@@ -8,7 +8,9 @@ use App\Http\Resources\UserResource;
 use App\Models\AiModel;
 use App\Models\Chat;
 use App\Models\ChatMessage;
+use App\Models\User;
 use App\Services\Billing\Wallet;
+use App\Services\Bot\BotSync;
 use App\Services\Generation\ProviderManager;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -34,7 +36,7 @@ class ChatController extends Controller
     }
 
     /** Sends one user message (a new chat when chat_id is empty) and returns the model's reply. */
-    public function send(Request $request, Wallet $wallet, ProviderManager $providers)
+    public function send(Request $request, Wallet $wallet, ProviderManager $providers, BotSync $botSync)
     {
         $data = $request->validate([
             'chat_id' => ['nullable', 'integer'],
@@ -43,7 +45,7 @@ class ChatController extends Controller
         ]);
 
         $user = $request->user();
-        $model = AiModel::active()->where('kind', 'text')->where('slug', $data['model'] ?? 'auto')->firstOrFail();
+        $model = $this->model($user, $data['model'] ?? null);
 
         if (! $user->canUse($model)) {
             return response()->json(['message' => 'Model requires a subscription', 'code' => 'model_locked', 'plan' => $model->min_plan], 403);
@@ -62,21 +64,26 @@ class ChatController extends Controller
             ], 402);
         }
 
-        $history = $chat->messages()->latest('id')->limit(20)->get()->reverse()
+        // The bot's settings of this person apply here too: save_context off = no history, the chosen role = system prompt.
+        $history = $user->save_context === false ? [] : $chat->messages()->latest('id')->limit(20)->get()->reverse()
             ->map(fn ($m) => ['role' => $m->role, 'content' => $m->content])->values()->all();
+        if ($role = $user->textRole?->prompt) {
+            array_unshift($history, ['role' => 'system', 'content' => $role]);
+        }
         $history[] = ['role' => 'user', 'content' => $data['message']];
 
         try {
             $answer = $providers->for($model)->chat($model, $history);
         } catch (Throwable $e) {
             report($e);
-            $wallet->credit($user, $model->price, 'refund', 'Возврат', [], 'Модель перегружена');
+            $wallet->refund($user, $model->price, 'Возврат', [], 'Модель перегружена', $tx);
 
             return response()->json(['message' => 'Model is unavailable', 'code' => 'provider_error', 'user' => new UserResource($user->refresh())], 502);
         }
 
+        $logId = $botSync->logQuery($user->id, (string) ($model->provider_model ?: $model->name), 'text', $model->price, $data['message'], $answer);
         ChatMessage::create(['chat_id' => $chat->id, 'role' => 'user', 'content' => $data['message']]);
-        $reply = ChatMessage::create(['chat_id' => $chat->id, 'role' => 'assistant', 'content' => $answer, 'cost' => $model->price]);
+        $reply = ChatMessage::create(['chat_id' => $chat->id, 'role' => 'assistant', 'content' => $answer, 'cost' => $model->price, 'query_log_id' => $logId]);
         $chat->touch();
 
         return response()->json([
@@ -84,5 +91,18 @@ class ChatController extends Controller
             'message' => ['id' => $reply->id, 'role' => 'assistant', 'content' => $answer, 'cost' => $model->price],
             'user' => new UserResource($user->refresh()),
         ]);
+    }
+
+    /** The chosen text model; "auto" (or nothing) is the model the person picked in the bot, else "auto", else the first one. */
+    private function model(User $user, ?string $slug): AiModel
+    {
+        $q = AiModel::active()->where('kind', 'text');
+        if ($slug && $slug !== 'auto') {
+            return (clone $q)->where('slug', $slug)->firstOrFail();
+        }
+
+        return ($user->text_model_id ? (clone $q)->where('bot_model_id', $user->text_model_id)->first() : null)
+            ?? (clone $q)->where('slug', 'auto')->first()
+            ?? $q->firstOrFail();
     }
 }

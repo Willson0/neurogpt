@@ -7,11 +7,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Generation extends Model
 {
+    protected $table = 'wa_generations';
+
     protected $fillable = [
-        'user_id', 'kind', 'ai_model_id', 'photoset_id', 'tool', 'prompt', 'params', 'input_path',
+        'user_id', 'query_log_id', 'kind', 'ai_model_id', 'photoset_id', 'tool', 'prompt', 'params', 'input_path', 'provider_task_id',
         'cost', 'status', 'result_path', 'result_text', 'error', 'is_favorite', 'rating',
         'started_at', 'finished_at',
     ];
+
+    /** The full instruction for the provider, built by PromptBuilder right before the job runs. */
+    public ?string $finalPrompt = null;
+
+    public function providerPrompt(): string
+    {
+        return $this->finalPrompt ?? (string) $this->prompt;
+    }
 
     protected function casts(): array
     {
@@ -37,6 +47,23 @@ class Generation extends Model
     public function photoset(): BelongsTo
     {
         return $this->belongsTo(Photoset::class);
+    }
+
+    public function isActive(): bool
+    {
+        return in_array($this->status, ['queued', 'processing'], true);
+    }
+
+    /** What the user sees as the name of this generation. */
+    public function title(): string
+    {
+        return match (true) {
+            $this->photoset_id !== null => 'Фотосет «'.($this->photoset?->name ?? '…').'»',
+            $this->kind === 'tool' => (string) (config("neurogpt.tools.{$this->tool}.name") ?? 'Инструмент'),
+            $this->kind === 'video' => 'Видео',
+            $this->kind === 'song' => 'Песня',
+            default => 'Картинка',
+        };
     }
 
     public function isFinal(): bool

@@ -54,14 +54,33 @@ return [
             'password' => env('DB_PASSWORD', ''),
             'unix_socket' => env('DB_SOCKET', ''),
             'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
+            // Empty on purpose: the app tables then get the same default collation as the bot tables that Tortoise
+            // created (CHARACTER SET utf8mb4 without COLLATE). A different collation breaks joins between them.
+            'collation' => env('DB_COLLATION') ?: null,
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            'timezone' => env('DB_TIMEZONE', '+00:00'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+                Mysql::ATTR_SSL_VERIFY_SERVER_CERT => env('MYSQL_ATTR_SSL_VERIFY_SERVER_CERT') === null ? null : (bool) env('MYSQL_ATTR_SSL_VERIFY_SERVER_CERT'),
+            ], fn ($v) => $v !== null) : [],
+        ],
+
+        // The old web app database (before the switch to the bot schema). Read only, by neurogpt:import-legacy.
+        'legacy' => [
+            'driver' => env('LEGACY_DB_CONNECTION', 'mysql'),
+            'url' => env('LEGACY_DB_URL'),
+            'host' => env('LEGACY_DB_HOST', '127.0.0.1'),
+            'port' => env('LEGACY_DB_PORT', '3306'),
+            'database' => env('LEGACY_DB_DATABASE', 'neurogpt'),
+            'username' => env('LEGACY_DB_USERNAME', 'root'),
+            'password' => env('LEGACY_DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
         ],
 
         'mariadb' => [
@@ -128,7 +147,7 @@ return [
     */
 
     'migrations' => [
-        'table' => 'migrations',
+        'table' => 'wa_migrations',
         'update_date_on_publish' => true,
     ],
 

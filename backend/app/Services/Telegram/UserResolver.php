@@ -3,9 +3,16 @@
 namespace App\Services\Telegram;
 
 use App\Exceptions\InvalidInitData;
+use App\Http\Middleware\AdminOnly;
+use App\Jobs\SyncAvatar;
+use App\Models\Bot\BotLink;
 use App\Models\User;
 use App\Services\Billing\Wallet;
+use App\Services\Bot\BotSync;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class UserResolver
 {
@@ -24,42 +31,119 @@ class UserResolver
         return $this->upsert($data['user'], $data['start_param']);
     }
 
+    /**
+     * Browser sign-in through the Telegram Login Widget. Only admins may use it: everyone else opens the Mini App.
+     *
+     * @throws InvalidInitData
+     */
+    public function fromLoginWidget(string $raw): User
+    {
+        $data = LoginWidget::validate($raw);
+        if (! AdminOnly::allowsId((int) $data['user']['id'])) {
+            throw new InvalidInitData('Browser sign-in is for admins only');
+        }
+
+        return $this->upsert($data['user']);
+    }
+
+    /** Telegram id of the inviter from a start parameter: friend_<id> (ref_<id> is the old format). */
+    public static function referrerFrom(?string $startParam): ?int
+    {
+        return $startParam && preg_match('/^(?:friend|ref)_(\d{1,20})$/', $startParam, $m) ? (int) $m[1] : null;
+    }
+
+    /**
+     * The person behind a signed Telegram payload. A bot user is found by id (= Telegram id) and only gets the app
+     * profile and fresh username/premium/activity; the bot counters are not touched. Someone who never started the
+     * bot gets a full row in the bot table `users` (every column from models.py) plus the signup bonus.
+     */
     public function upsert(array $tg, ?string $startParam = null): User
     {
-        $user = User::firstWhere('telegram_id', $tg['id']);
+        $id = (int) $tg['id'];
+        $photo = (string) ($tg['photo_url'] ?? '');
         $profile = [
-            'username' => $tg['username'] ?? null,
-            'first_name' => $tg['first_name'] ?? null,
-            'last_name' => $tg['last_name'] ?? null,
-            'language_code' => $tg['language_code'] ?? null,
-            'photo_url' => $tg['photo_url'] ?? null,
+            'first_name' => self::clean($tg['first_name'] ?? null, 128),
+            'last_name' => self::clean($tg['last_name'] ?? null, 128),
+            'language_code' => self::clean($tg['language_code'] ?? null, 12),
+            'photo_url' => preg_match('#^https://[\w.-]+/#', $photo) && strlen($photo) <= 255 ? $photo : null,
         ];
+        $username = self::clean($tg['username'] ?? null, 64);
 
+        $user = User::with('profile')->find($id);
         if ($user) {
-            $user->fill($profile)->save();
+            // A locally stored avatar wins over the (often unreachable) Telegram CDN link.
+            if (str_starts_with((string) $user->photo_url, '/storage/') || $profile['photo_url'] === null) {
+                unset($profile['photo_url']);
+            }
+            $user->updateProfile($profile);
+            $this->touchBotRow($user, $username, $tg);
+            $this->syncAvatar($user);
 
             return $user;
         }
 
-        $referrerId = null;
-        if ($startParam && preg_match('/^ref_(\d+)$/', $startParam, $m)) {
-            $referrerId = User::where('telegram_id', (int) $m[1])->value('id');
-        }
+        $referrerTgId = self::referrerFrom($startParam);
+        $referrerId = $referrerTgId && $referrerTgId !== $id && User::whereKey($referrerTgId)->exists()
+            && ! User::whereKey($referrerTgId)->blocked()->exists() ? $referrerTgId : null;
+        // A start parameter that names a bot integration link (table `links`) is kept in users.link, as the bot does.
+        $link = $startParam && ! $referrerTgId && BotLink::where('name', $startParam)->exists() ? $startParam : null;
 
         try {
-            $user = User::create($profile + [
-                'telegram_id' => $tg['id'],
-                'referred_by' => $referrerId,
-            ]);
+            // The account and its welcome bonus appear together or not at all.
+            $user = DB::transaction(function () use ($id, $username, $tg, $referrerId, $link, $profile) {
+                $user = new User;
+                $user->forceFill(User::botDefaults() + BotSync::defaultModelIds());
+                $user->forceFill([
+                    'id' => $id, 'username' => $username, 'is_premium' => (bool) ($tg['is_premium'] ?? false),
+                    'referal_user_from' => $referrerId, 'link' => $link,
+                ]);
+                $user->save();
+                $user->updateProfile($profile);
+                if ($bonus = (int) config('neurogpt.bonus.signup')) {
+                    $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
+                }
+
+                return $user;
+            });
         } catch (UniqueConstraintViolationException) {
-            // A parallel first request created the user already.
-            return User::where('telegram_id', $tg['id'])->firstOrFail();
+            // A parallel first request (or the bot) created the user already.
+            return User::findOrFail($id);
         }
 
-        if ($bonus = (int) config('neurogpt.bonus.signup')) {
-            $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
-        }
+        $this->syncAvatar($user);
 
         return $user->refresh();
+    }
+
+    /** username and Telegram Premium follow Telegram; last_activity_at is refreshed at most every 5 minutes. */
+    private function touchBotRow(User $user, ?string $username, array $tg): void
+    {
+        $changes = [];
+        if ($username !== null && $username !== $user->username) {
+            $changes['username'] = $username;
+        }
+        if (array_key_exists('is_premium', $tg) && (bool) $tg['is_premium'] !== (bool) $user->is_premium) {
+            $changes['is_premium'] = (bool) $tg['is_premium'];
+        }
+        if (! $user->last_activity_at || $user->last_activity_at->lt(now()->subMinutes(5))) {
+            $changes['last_activity_at'] = now();
+        }
+        if ($changes) {
+            // Only these columns are written, so a parallel balance change by the bot is not overwritten.
+            User::whereKey($user->id)->update($changes);
+            $user->forceFill($changes)->syncOriginalAttributes(array_keys($changes));
+        }
+    }
+
+    private static function clean(mixed $value, int $max): ?string
+    {
+        return is_string($value) && $value !== '' ? Str::limit($value, $max, '') : null;
+    }
+
+    private function syncAvatar(User $user): void
+    {
+        if (config('neurogpt.telegram.bot_token') && Cache::add("avatar-sync:{$user->id}", 1, now()->addDay())) {
+            SyncAvatar::dispatch($user->id);
+        }
     }
 }

@@ -1,0 +1,6 @@
+Удалить из проекта (старые миграции веб-аппа):
+backend/database/migrations/2026_01_01_000001_create_users_table.php
+backend/database/migrations/2026_01_01_000002_create_catalog_tables.php
+backend/database/migrations/2026_01_01_000003_create_billing_tables.php
+backend/database/migrations/2026_11_12_000001_production_hardening.php
+backend/database/migrations/2026_11_13_000001_admin_panel.php

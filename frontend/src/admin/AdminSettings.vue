@@ -8,7 +8,6 @@
         <div class="adm-grid wide">
           <label class="adm-f">Генераций одновременно у одного человека<input v-model.number="v.limits.active_generations" type="number" min="1" max="100" required></label>
           <label class="adm-f">Бесплатных улучшений промпта в день<input v-model.number="v.limits.improve_per_day" type="number" min="0" required></label>
-          <label class="adm-f">Наград за друзей на одного человека<input v-model.number="v.limits.referral_rewards" type="number" min="0" required></label>
           <label class="adm-f">Через сколько секунд зависшая генерация отменяется<input v-model.number="v.limits.generation_timeout" type="number" min="60" max="86400" required></label>
           <label class="adm-f">Максимальный размер фото, МБ (до 10)<input v-model.number="uploadMb" type="number" min="1" max="10" required></label>
         </div>

@@ -57,7 +57,7 @@ class CatalogController extends Controller
             $bot = BotModel::create([
                 'type' => BotModel::typeOf($data['kind']), 'name' => Str::limit($data['provider_model'], 100, ''),
                 'text_name' => Str::limit($data['name'], 100, ''), 'price' => (int) $data['price'],
-                'allowed_subs' => BotModel::subsFor($data['min_plan'] ?? 'free'), 'can_image' => false, 'tag' => '', 'params' => [],
+                'only_sub' => BotModel::onlySubFor($data['min_plan'] ?? 'free'), 'can_image' => false, 'tag' => '', 'params' => [],
             ]);
             $data['bot_model_id'] = $bot->id;
         }

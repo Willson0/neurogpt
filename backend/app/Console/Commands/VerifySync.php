@@ -24,10 +24,10 @@ class VerifySync extends Command
     /** Columns of models.py (as Tortoise names them) the app reads or writes. */
     public const BOT_COLUMNS = [
         'users' => ['id', 'username', 'email', 'paid_money', 'is_premium', 'blocked_us', 'tokens', 'sub_tokens', 'temp_tokens',
-            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context', 'show_balance_alert',
-            'sub', 'start_sub_time', 'end_sub_time', 'autocont_sub', 'autocont_try', 'is_trial_sub', 'tried_free_smart', 'auto_continue',
-            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'last_notif', 'last_activity_at', 'created_at'],
-        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'allowed_subs', 'params', 'created_at', 'modified_at'],
+            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context',
+            'sub', 'start_sub_time', 'end_sub_time', 'autocont_sub', 'autocont_try', 'is_trial_sub', 'auto_continue',
+            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'ref_balance', 'last_notif', 'last_activity_at', 'created_at'],
+        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'only_sub', 'params', 'created_at', 'modified_at'],
         'prompts' => ['id', 'position', 'name', 'prompt', 'photo_example', 'model', 'trend'],
         'roles' => ['id', 'name', 'prompt'],
         'links' => ['id', 'name', 'hide', 'prompt_id_id', 'created_at', 'modified_at'],
@@ -41,6 +41,7 @@ class VerifySync extends Command
         'logs_table' => ['id', 'user_id', 'action', 'params', 'event_type', 'created_at', 'modified_at'],
         'veo3_prompts' => ['id', 'user_id', 'hash', 'status', 'model', 'task_id', 'prompts', 'tokens_used', 'created_at', 'modified_at'],
         'config' => ['id', 'category', 'name', 'value', 'created_at', 'modified_at'],
+        'admins' => ['id', 'username'],
     ];
 
     private int $errors = 0;

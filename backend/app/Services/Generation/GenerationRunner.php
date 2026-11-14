@@ -7,7 +7,6 @@ use App\Exceptions\ProviderUnavailable;
 use App\Jobs\PollGeneration;
 use App\Models\Generation;
 use App\Models\User;
-use App\Models\UserProfile;
 use App\Services\Billing\Wallet;
 use App\Services\Bot\BotSync;
 use App\Services\Telegram\Bot;
@@ -130,7 +129,6 @@ class GenerationRunner
         } catch (Throwable $e) {
             Log::warning('Result was not delivered to the chat', ['id' => $g->id, 'error' => Bot::scrub($e->getMessage())]);
         }
-        $this->rewardReferrer($g->user);
     }
 
     public function fail(Generation $g, Throwable $e): void
@@ -220,35 +218,6 @@ class GenerationRunner
         );
         if ($id) {
             Generation::whereKey($g->id)->update(['query_log_id' => $id]);
-        }
-    }
-
-    /**
-     * The first finished generation of an invited person rewards both. Who invited is the bot's users.referal_user_from;
-     * the app's own "already rewarded" mark is in wa_user_profiles (the bot's ref_paid is left to the bot).
-     */
-    private function rewardReferrer(User $user): void
-    {
-        if (! $user->referred_by || $user->referral_rewarded_at) {
-            return;
-        }
-
-        $bonus = (int) config('neurogpt.bonus.referral');
-        UserProfile::firstOrCreate(['user_id' => $user->id]);
-        $first = UserProfile::whereKey($user->id)->whereNull('referral_rewarded_at')->update(['referral_rewarded_at' => now()]);
-        $user->unsetRelation('profile');
-        if (! $first || ! $bonus) {
-            return;
-        }
-
-        $this->wallet->credit($user, $bonus, 'referral', 'Бонус за приглашение');
-
-        // The friend always gets the gift; the inviter stops earning after the cap (protection from farming).
-        $rewarded = UserProfile::whereNotNull('referral_rewarded_at')
-            ->whereIn('user_id', User::where('referal_user_from', $user->referred_by)->select('id'))->count();
-        $referrer = User::find($user->referred_by);
-        if ($referrer && ! $referrer->is_blocked && $rewarded <= (int) config('neurogpt.limits.referral_rewards')) {
-            $this->wallet->credit($referrer, $bonus, 'referral', 'Друг сделал первую генерацию', [], $user->displayName());
         }
     }
 }

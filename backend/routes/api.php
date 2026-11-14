@@ -49,6 +49,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::get('chats/{chat}', [ChatController::class, 'show'])->whereNumber('chat');
     Route::post('chats/messages', [ChatController::class, 'send'])->middleware('throttle:generate');
 
+    Route::post('payments/item', [PaymentController::class, 'item'])->middleware('throttle:pay');
     Route::post('payments/topup', [PaymentController::class, 'topup'])->middleware('throttle:pay');
     Route::post('payments/plan', [PaymentController::class, 'plan'])->middleware('throttle:pay');
     Route::get('payments/{payment}', [PaymentController::class, 'show'])->whereNumber('payment');

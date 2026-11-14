@@ -1,6 +1,6 @@
 <template>
   <div class="view" data-view="plans">
-    <LensBar :active="app.period" label="Период">
+    <LensBar v-if="hasYear" :active="app.period" label="Период">
       <button type="button" role="tab" :aria-selected="String(app.period === 'month')" @click="app.period = 'month'">Месяц</button>
       <button type="button" role="tab" :aria-selected="String(app.period === 'year')" @click="app.period = 'year'">Год, −30%</button>
     </LensBar>
@@ -53,9 +53,13 @@ const META = {
 export default {
   name: 'PlansView',
   components: { LensBar, Sticker, PayMethod },
-  data: () => ({ tilt: {}, tiers: ['free', 'plus', 'pro'] }),
+  data: () => ({ tilt: {} }),
   computed: {
     app() { return useApp() },
+    // plans the shop sells (available = false: the bot's shop has no row for it)
+    tiers() { return ['free', 'plus', 'pro'].filter((t) => t === 'free' || (this.app.plans[t] && this.app.plans[t].available !== false)) },
+    // with a shop price list a year exists only when the shop has a year row
+    hasYear() { return this.tiers.some((t) => t !== 'free' && (this.app.plans[t].item_year || (!('item_month' in this.app.plans[t]) && this.app.plans[t].year_month))) },
     info() { return this.app.plans[this.app.tier] || { name: '', month: 0, year_month: 0, tokens: 0 } },
     meta() { return META[this.app.tier] },
     monthly() {
@@ -63,6 +67,10 @@ export default {
       return this.app.priceLabel(year ? i.year_month : i.month, year ? Math.round(i.stars_year / 12) : i.stars_month)
     },
     line() { return this.info.tokens ? `${fmt(this.info.tokens)} токенов в месяц` : 'Бонус каждый день' },
+  },
+  watch: {
+    hasYear: { immediate: true, handler(v) { if (!v && this.app.period === 'year') this.app.period = 'month' } },
+    tiers: { immediate: true, handler(list) { if (!list.includes(this.app.tier)) this.app.tier = list[list.length - 1] || 'free' } },
   },
   methods: {
     fmt,

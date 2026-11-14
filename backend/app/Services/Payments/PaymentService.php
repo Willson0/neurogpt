@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments;
 
+use App\Models\Bot\ShopItem;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\Billing\Wallet;
@@ -23,6 +24,7 @@ class PaymentService
         private readonly Wallet $wallet,
         private readonly Bot $bot,
         private readonly BotSync $botSync,
+        private readonly Shop $shop,
     ) {}
 
     /** Which ways to pay are configured right now. */
@@ -39,8 +41,56 @@ class PaymentService
         return max(1, (int) ceil($rub / (float) config('neurogpt.stars.rub_per_star')));
     }
 
+    /**
+     * The main way to pay: by the id of a row of the bot table `shop`. Price, quantity and what is delivered are read
+     * from that row here, the app only says which row.
+     */
+    public function createForItem(User $user, int $itemId, string $method = 'card'): Payment
+    {
+        $item = $this->shop->find($itemId);
+        if (! $item) {
+            throw new InvalidArgumentException('Unknown shop item');
+        }
+
+        return $this->start($user, $method, $this->itemAttrs($item), (string) $item->text_name);
+    }
+
+    /** What a shop row delivers, as wa_payments columns. */
+    public function itemAttrs(ShopItem $item): array
+    {
+        if ($this->shop->isTokens($item)) {
+            return ['purpose' => 'topup', 'shop_item_id' => $item->id, 'tokens' => (int) $item->amount, 'amount' => (int) $item->price];
+        }
+
+        $days = Shop::days($item);
+        $perMonth = (int) config("neurogpt.plans.{$item->item}.tokens", 0);
+
+        return [
+            'purpose' => 'plan', 'shop_item_id' => $item->id, 'plan' => (string) $item->item, 'days' => $days,
+            'period' => $days >= 300 ? 'year' : 'month', 'amount' => (int) $item->price,
+            // subscription tokens: the plan's monthly tokens for every started 30 days
+            'tokens' => $perMonth * max(1, (int) round($days / 30)),
+        ];
+    }
+
+    /** Is this shop row a subscription cheaper than the active one? */
+    public function isItemDowngrade(User $user, int $itemId): bool
+    {
+        $item = $this->shop->find($itemId);
+
+        return $item && ! $this->shop->isTokens($item) && $this->isDowngrade($user, (string) $item->item);
+    }
+
+    /** Old endpoint (a pack by its token count). When the shop sells token packs, the price comes from the shop row. */
     public function createTopup(User $user, int $tokens, string $method = 'card'): Payment
     {
+        $items = $this->shop->tokenItems();
+        if ($items->isNotEmpty()) {
+            $item = $items->firstWhere('amount', $tokens) ?? throw new InvalidArgumentException('Unknown pack');
+
+            return $this->createForItem($user, $item->id, $method);
+        }
+
         $pack = collect(config('neurogpt.packs'))->firstWhere('tokens', $tokens);
         if (! $pack) {
             throw new InvalidArgumentException('Unknown pack');
@@ -51,11 +101,18 @@ class PaymentService
         ], "Пополнение: {$pack['tokens']} токенов");
     }
 
+    /** Old endpoint (plan + period). When the shop sells subscriptions, the matching shop row is used. */
     public function createPlan(User $user, string $plan, string $period, string $method = 'card'): Payment
     {
         $cfg = config("neurogpt.plans.$plan");
         if (! $cfg || $plan === 'free' || ! in_array($period, ['month', 'year'], true)) {
             throw new InvalidArgumentException('Unknown plan');
+        }
+
+        if ($this->shop->subItems()->isNotEmpty()) {
+            $item = $this->shop->planItem($plan, $period) ?? throw new InvalidArgumentException('Unknown plan');
+
+            return $this->createForItem($user, $item->id, $method);
         }
 
         $amount = $period === 'year' ? $cfg['year_month'] * 12 : $cfg['month'];
@@ -108,7 +165,7 @@ class PaymentService
             (float) $payment->amount,
             $description,
             $returnUrl.(str_contains($returnUrl, '?') ? '&' : '?').'payment='.$payment->id,
-            ['payment_id' => (string) $payment->id, 'user_id' => (string) $user->id],
+            array_filter(['payment_id' => (string) $payment->id, 'user_id' => (string) $user->id, 'item_id' => $payment->shop_item_id ? (string) $payment->shop_item_id : null]),
             $this->receipt($payment, $description),
         );
 
@@ -121,7 +178,8 @@ class PaymentService
 
     private function startStars(Payment $payment, string $description): void
     {
-        $title = $payment->purpose === 'topup' ? "{$payment->tokens} токенов" : 'Подписка '.config("neurogpt.plans.{$payment->plan}.name");
+        $title = $payment->shop_item_id ? $description
+            : ($payment->purpose === 'topup' ? "{$payment->tokens} токенов" : 'Подписка '.config("neurogpt.plans.{$payment->plan}.name"));
         $link = $this->bot->createStarsInvoice($title, $description.' в NeuroGPT', self::starsPayload($payment), (int) $payment->amount);
         if (! $link) {
             throw new RuntimeException('Telegram did not create the Stars invoice');
@@ -179,6 +237,7 @@ class PaymentService
 
             $this->fulfil($locked, 'Telegram Stars');
             $locked->update(['status' => 'succeeded', 'credited_at' => now(), 'provider_payment_id' => $chargeId, 'raw' => $raw]);
+            $this->creditReferrer($locked);
             $this->botSync->mirrorPayment($locked);
 
             return $locked;
@@ -223,6 +282,11 @@ class PaymentService
         return $this->apply($payment, $remote);
     }
 
+    /**
+     * Applies a payment object read from the YooKassa API (never a webhook body). Safe to run any number of times:
+     * the payment row is locked, delivery happens once (credited_at), the referral commission once (ref_amount),
+     * and a refund only takes back what has not been taken back yet (refunded_amount, ref_reverted).
+     */
     public function apply(Payment $payment, array $remote): Payment
     {
         return DB::transaction(function () use ($payment, $remote) {
@@ -238,7 +302,7 @@ class PaymentService
                 // Paid in full, in rubles, exactly what we asked for.
                 $paid = $remote['amount']['value'] ?? null;
                 $currency = $remote['amount']['currency'] ?? null;
-                if (($remote['paid'] ?? true) !== true || $currency !== 'RUB' || $paid === null || abs((float) $paid - (float) $locked->amount) > 0.001) {
+                if (($remote['paid'] ?? null) !== true || $currency !== 'RUB' || $paid === null || abs((float) $paid - (float) $locked->amount) > 0.001) {
                     Log::critical('YooKassa payment mismatch', ['payment' => $locked->id, 'paid' => $paid, 'currency' => $currency]);
                     $locked->update(['status' => 'canceled', 'cancel_reason' => 'amount_mismatch', 'raw' => $remote]);
 
@@ -246,6 +310,7 @@ class PaymentService
                 }
                 $this->fulfil($locked, 'ЮKassa');
                 $locked->update(['status' => 'succeeded', 'credited_at' => now(), 'raw' => $remote]);
+                $this->creditReferrer($locked);
                 $this->botSync->mirrorPayment($locked);
             } elseif ($status === 'canceled' && $locked->status === 'pending') {
                 $locked->update([
@@ -255,8 +320,83 @@ class PaymentService
                 ]);
             }
 
+            if ($locked->credited_at && isset($remote['refunded_amount']['value'])) {
+                $this->applyRefund($locked, (float) $remote['refunded_amount']['value']);
+            }
+
             return $locked;
         });
+    }
+
+    /**
+     * refund.succeeded (the total comes from the API: payment.refunded_amount). The inviter loses the same share of the
+     * commission as the share of the price that was returned; a full refund takes it all back. users.ref_balance may
+     * go below zero when the inviter has already been paid out: the next commissions cover it.
+     * Tokens and the subscription of the buyer are NOT taken back automatically (support decides).
+     */
+    private function applyRefund(Payment $locked, float $refundedTotal): void
+    {
+        $total = (float) $locked->amount;
+        $refunded = min($total, max(0.0, round($refundedTotal, 2)));
+        $before = (float) $locked->refunded_amount;
+        if ($refunded <= $before + 0.001) {
+            return; // nothing new: a repeated notification or a re-check
+        }
+
+        $full = $refunded >= $total - 0.001;
+        $target = $full ? (int) $locked->ref_amount : (int) floor($locked->ref_amount * $refunded / max(0.01, $total));
+        $take = $target - (int) $locked->ref_reverted;
+        if ($take > 0 && $locked->referrer_id) {
+            User::query()->whereKey($locked->referrer_id)->decrement('ref_balance', $take);
+        }
+
+        // users.paid_money was raised by the ruble price when the payment was mirrored to the bot: lower it by the refund.
+        if ($locked->bot_payment_id) {
+            $rubShare = ($refunded - $before) * ((float) ($locked->rub_amount ?? $total) / max(0.01, $total));
+            User::query()->whereKey($locked->user_id)->decrement('paid_money', round($rubShare, 2));
+        }
+
+        $locked->update([
+            'refunded_amount' => $refunded,
+            'refunded_at' => now(),
+            'ref_reverted' => max((int) $locked->ref_reverted, $target),
+            'status' => $full ? 'refunded' : $locked->status,
+        ]);
+        Log::info('YooKassa refund applied', ['payment' => $locked->id, 'refunded' => $refunded, 'ref_taken_back' => max(0, $take)]);
+    }
+
+    /**
+     * The inviter (users.referal_user_from of the buyer) gets referral_percent (20 %) of the ruble price into
+     * users.ref_balance, once per payment. Called inside the payment's locked transaction right after delivery.
+     * The buyer's users.ref_paid is set to true at the first commission ("this referral has brought money").
+     */
+    private function creditReferrer(Payment $locked): void
+    {
+        if ($locked->referrer_id || $locked->ref_amount) {
+            return;
+        }
+        $buyer = User::query()->whereKey($locked->user_id)->first(['id', 'referal_user_from', 'ref_paid']);
+        $referrerId = (int) ($buyer?->referal_user_from ?? 0);
+        if (! $buyer || ! $referrerId || $referrerId === (int) $buyer->id) {
+            return;
+        }
+        $referrer = User::query()->whereKey($referrerId)->first();
+        if (! $referrer || $referrer->is_blocked) {
+            return;
+        }
+
+        $percent = max(0, min(100, (int) config('neurogpt.bonus.referral_percent', 20)));
+        $amount = (int) floor((float) ($locked->rub_amount ?? $locked->amount) * $percent / 100);
+        if ($amount <= 0) {
+            return;
+        }
+
+        // ref_balance = ref_balance + n in SQL: the bot's writes to other columns of that row are not touched.
+        User::query()->whereKey($referrerId)->increment('ref_balance', $amount);
+        if (! $buyer->ref_paid) {
+            User::query()->whereKey($buyer->id)->update(['ref_paid' => true]);
+        }
+        $locked->update(['referrer_id' => $referrerId, 'ref_amount' => $amount]);
     }
 
     private function fulfil(Payment $payment, string $via): void
@@ -269,13 +409,14 @@ class PaymentService
             return;
         }
 
-        $months = $payment->period === 'year' ? 12 : 1;
         $active = $user->activePlan();
         if ((self::RANK[$payment->plan] ?? 0) >= (self::RANK[$active] ?? 0)) {
             // Same plan: the paid time is added on top. Upgrade: the new plan starts now.
             $base = ($active === $payment->plan && $user->plan_expires_at?->isFuture()) ? $user->plan_expires_at : now();
-            // The bot's columns: sub, start_sub_time, end_sub_time.
-            $user->setPlan($payment->plan, $base->copy()->addMonths($months))->save();
+            // A shop row gives days (shop.amount), the config plans give months.
+            $until = $payment->days ? $base->copy()->addDays($payment->days) : $base->copy()->addMonths($payment->period === 'year' ? 12 : 1);
+            // The bot's columns: sub, start_sub_time, end_sub_time (only these are written).
+            $user->setPlan($payment->plan, $until)->save();
         }
         // (A cheaper plan paid while a higher one is active keeps the higher plan; the tokens are still credited.)
 

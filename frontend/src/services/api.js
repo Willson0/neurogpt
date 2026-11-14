@@ -77,6 +77,7 @@ export const api = {
   updateGeneration: (id, patch) => request('PATCH', `/generations/${id}`, { json: patch }),
   cancelGeneration: (id) => request('POST', `/generations/${id}/cancel`),
   improvePrompt: (prompt, kind) => request('POST', '/prompt/improve', { json: { prompt, kind } }),
+  buyItem: (itemId, method) => request('POST', '/payments/item', { json: { item_id: itemId, method } }),
   topup: (tokens, method) => request('POST', '/payments/topup', { json: { tokens, method } }),
   buyPlan: (plan, period, method) => request('POST', '/payments/plan', { json: { plan, period, method } }),
   payment: (id) => request('GET', `/payments/${id}`),

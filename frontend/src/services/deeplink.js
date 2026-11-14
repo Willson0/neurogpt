@@ -21,6 +21,7 @@ import { openAdmin } from '../stores/app'
  *   videosets                                   the gallery on its video sets tab
  *   topup | topup-<tokens>                      buying tokens, optionally with a pack chosen
  *   plans | plans-<plus|pro> | plans-pro-year   subscriptions
+ *   buy-<shop id>                               the purchase screen of that row of the bot table `shop` (pack or plan chosen)
  *   result-<id>                                 one generation of this user
  *   admin | admin-<section>                     admin panel (admins only): dashboard, content, models, tools, showcase,
  *                                               pricing, settings, payments, theme, users
@@ -133,6 +134,21 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
       home()
       const i = app.packs.findIndex((p) => String(p.tokens) === arg)
       if (i >= 0) app.packIndex = i
+      app.stack = ['home', 'topup']
+      return true
+    }
+    case 'buy': {
+      home()
+      const id = Number(arg)
+      const i = app.packs.findIndex((p) => p.item_id === id)
+      if (i >= 0) { app.packIndex = i; app.stack = ['home', 'topup']; return true }
+      const tier = Object.keys(app.plans).find((t) => app.plans[t].item_month === id || app.plans[t].item_year === id)
+      if (tier) {
+        app.tier = tier
+        app.period = app.plans[tier].item_year === id ? 'year' : 'month'
+        app.stack = ['home', 'plans']
+        return true
+      }
       app.stack = ['home', 'topup']
       return true
     }

@@ -81,13 +81,24 @@ class BotSync
     }
 
     /**
-     * The `shop` row a purchase belongs to (payments.item_id is required). Looked up by category, item and amount;
+     * The `shop` row a purchase belongs to (payments.item_id is required): the row it was bought by, otherwise looked up by category, item and amount;
      * when the bot has no such row, a hidden one (active = false) is added so it does not appear in the bot menu.
      */
     public function shopItem(Payment $payment): ShopItem
     {
+        // Bought by shop id (the normal way now): that very row.
+        if ($payment->shop_item_id && ($row = ShopItem::find($payment->shop_item_id))) {
+            return $row;
+        }
+
         $cfg = config('neurogpt.bot.shop');
         if ($payment->purpose === 'topup') {
+            // the bot names its packs tokens_300, tokens_800...: a pack is found by category and amount
+            $found = ShopItem::where(['category' => $cfg['tokens_category'], 'amount' => (int) $payment->tokens])
+                ->orderByDesc('active')->orderBy('id')->first();
+            if ($found) {
+                return $found;
+            }
             $attrs = ['category' => $cfg['tokens_category'], 'item' => $cfg['tokens_item'], 'amount' => (int) $payment->tokens];
             $name = "{$payment->tokens} токенов";
         } else {
@@ -140,7 +151,8 @@ class BotSync
             $linked = AiModel::whereNotNull('bot_model_id')->get()->keyBy('bot_model_id');
             foreach (BotModel::whereIn('type', array_keys(BotModel::KINDS))->orderBy('id')->get() as $bot) {
                 $kind = BotModel::KINDS[$bot->type];
-                $local = ['name' => $bot->text_name ?: $bot->name, 'price' => max(0, (int) $bot->price), 'min_plan' => $bot->minPlan()];
+                $local = ['name' => $bot->text_name ?: $bot->name, 'price' => max(0, (int) $bot->price),
+                    'min_plan' => $bot->minPlan($linked->get($bot->id)?->getRawOriginal('min_plan'))];
                 if (in_array("bot:model:{$bot->id}", $deleted, true)) {
                     continue; // the admin removed it from the app
                 }

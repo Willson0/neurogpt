@@ -29,6 +29,8 @@ class UserResource extends JsonResource
             'daily_bonus_available' => ! $u->last_bonus_on || ! $u->last_bonus_on->isToday(),
             'invite_link' => $u->inviteLink(),
             'invited' => $u->newQuery()->where('referal_user_from', $u->id)->count(),
+            // rubles: 20 % of the purchases of invited friends (bot column users.ref_balance)
+            'ref_balance' => (int) $u->ref_balance,
             'stats' => [
                 'created' => $u->generations()->where('status', 'done')->count(),
                 'spent' => (int) abs($u->transactions()->where('type', 'spend')->sum('amount')),

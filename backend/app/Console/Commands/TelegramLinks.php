@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\AiModel;
 use App\Models\Photoset;
+use App\Services\Payments\Shop;
 use App\Services\Telegram\Bot;
 use Illuminate\Console\Command;
 
@@ -30,6 +31,10 @@ class TelegramLinks extends Command
         }
         foreach (AiModel::active()->where('kind', 'tool')->get() as $t) {
             $screens[] = ["tool-{$t->slug}", 'Инструмент: '.$t->name];
+        }
+        // a purchase screen for every row of the bot's shop: buy-<shop.id>
+        foreach (app(Shop::class)->tokenItems()->concat(app(Shop::class)->subItems()) as $i) {
+            $screens[] = ["buy-{$i->id}", "Купить: {$i->text_name} ({$i->price} ₽)"];
         }
         foreach (Photoset::where('is_active', true)->orderBy('sort')->get() as $p) {
             $screens[] = ["photoset-{$p->id}", 'Фотосет: '.$p->name];

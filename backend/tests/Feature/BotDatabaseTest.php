@@ -165,7 +165,7 @@ class BotDatabaseTest extends TestCase
 
     public function test_an_existing_shop_item_is_reused(): void
     {
-        $item = ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'tokens', 'item' => 'tokens', 'amount' => 500, 'price' => 450]);
+        $item = ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 450]);
         $user = $this->user(783, 0);
         $p = Payment::create(['user_id' => 783, 'provider' => 'yookassa', 'provider_payment_id' => 'yk-1', 'idempotence_key' => 'k1',
             'purpose' => 'topup', 'tokens' => 500, 'amount' => 450, 'rub_amount' => 450, 'status' => 'succeeded', 'credited_at' => now()]);
@@ -179,12 +179,13 @@ class BotDatabaseTest extends TestCase
     public function test_bot_catalog_is_pulled_and_admin_edits_go_back_to_the_bot(): void
     {
         $bot = BotModel::create(['type' => 'photo', 'can_image' => true, 'price' => 25, 'name' => 'flux-pro', 'text_name' => 'Flux Pro',
-            'tag' => '', 'allowed_subs' => ['pro'], 'params' => (object) []]);
+            'tag' => '', 'only_sub' => true, 'params' => (object) []]);
         $prompt = BotPrompt::create(['name' => 'Барби', 'prompt' => 'Make a barbie doll', 'trend' => true, 'position' => 1]);
         app(BotSync::class)->pullCatalog();
 
         $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
-        $this->assertSame(['image', 'Flux Pro', 25, 'pro', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
+        // only_sub = any subscription: the app shows it as plus until an admin narrows it to pro
+        $this->assertSame(['image', 'Flux Pro', 25, 'plus', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
         $boot = $this->as(784)->getJson('/api/bootstrap')->assertOk();
         $this->assertSame(25, collect($boot->json('models.image'))->firstWhere('name', 'Flux Pro')['price']);
         $set = collect($boot->json('photosets'))->firstWhere('name', 'Барби');
@@ -196,9 +197,15 @@ class BotDatabaseTest extends TestCase
 
         // an admin edit is written to the bot row
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'plus', 'name' => 'Flux'])->assertOk();
+            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'free', 'name' => 'Flux'])->assertOk();
         $bot->refresh();
-        $this->assertSame([40, 'Flux', ['plus', 'pro']], [$bot->price, $bot->text_name, $bot->allowed_subs]);
+        $this->assertSame([40, 'Flux', false], [$bot->price, $bot->text_name, $bot->only_sub]);
+        // pro is kept on the app side, the bot gets only_sub = true; a later catalog pull does not lose it
+        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
+            ->patchJson("/api/admin/models/{$m->id}", ['min_plan' => 'pro'])->assertOk();
+        app(BotSync::class)->pullCatalog();
+        $this->assertTrue($bot->refresh()->only_sub);
+        $this->assertSame('pro', AiModel::find($m->id)->min_plan);
 
         $ps = Photoset::where('prompt_id', $prompt->id)->firstOrFail();
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])

@@ -454,9 +454,11 @@ export const useApp = defineStore('app', {
       if (method === 'stars' && !tg.canInvoice) return this.toast('Оплата звёздами работает в Telegram')
       this.busy = true
       try {
-        const r = kind === 'topup'
-          ? await api.topup(this.pack.tokens, method)
-          : await api.buyPlan(this.tier, this.period, method)
+        // The bot's shop is the price list: the server gets only the shop item id and takes the price from it.
+        const itemId = kind === 'topup' ? this.pack.item_id : this.plans[this.tier]?.[`item_${this.period}`]
+        const r = itemId
+          ? await api.buyItem(itemId, method)
+          : kind === 'topup' ? await api.topup(this.pack.tokens, method) : await api.buyPlan(this.tier, this.period, method)
         this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, startedAt: Date.now() }
         if (method === 'stars') {
           this.busy = false

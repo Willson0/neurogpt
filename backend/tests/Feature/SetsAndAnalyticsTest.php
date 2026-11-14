@@ -151,7 +151,7 @@ class SetsAndAnalyticsTest extends TestCase
         $id = $this->admin()->postJson('/api/admin/models', ['kind' => 'image', 'slug' => 'nano', 'name' => 'Nano', 'price' => 12, 'min_plan' => 'plus',
             'provider_model' => 'nano-banana', 'driver' => 'fake', 'create_in_bot' => true])->assertCreated()->json('data.bot_model_id');
         $row = BotModel::findOrFail($id);
-        $this->assertSame(['photo', 'nano-banana', 'Nano', 12, ['plus', 'pro']], [$row->type, $row->name, $row->text_name, $row->price, $row->allowed_subs]);
+        $this->assertSame(['photo', 'nano-banana', 'Nano', 12, true], [$row->type, $row->name, $row->text_name, $row->price, $row->only_sub]);
         $this->admin()->postJson('/api/admin/models', ['kind' => 'song', 'slug' => 's2', 'name' => 'S', 'price' => 1, 'provider_model' => 'x', 'create_in_bot' => true])->assertStatus(422);
         $this->admin()->postJson('/api/admin/models', ['kind' => 'image', 'slug' => 'n2', 'name' => 'S', 'price' => 1, 'create_in_bot' => true])->assertStatus(422);
 

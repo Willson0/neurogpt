@@ -8,6 +8,7 @@ use App\Http\Resources\UserResource;
 use App\Models\Payment;
 use App\Services\Payments\PaymentService;
 use App\Services\Payments\YooKassa;
+use App\Services\Telegram\Bot;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
@@ -19,9 +20,10 @@ class PaymentController extends Controller
     {
         $data = $request->validate([
             'tokens' => ['required', 'integer', Rule::in(array_column(config('neurogpt.packs'), 'tokens'))],
+            'method' => ['nullable', Rule::in(['card', 'stars'])],
         ]);
 
-        return $this->respond(fn () => $payments->createTopup($request->user(), $data['tokens']));
+        return $this->respond(fn () => $payments->createTopup($request->user(), $data['tokens'], $data['method'] ?? 'card'));
     }
 
     public function plan(Request $request, PaymentService $payments)
@@ -29,9 +31,14 @@ class PaymentController extends Controller
         $data = $request->validate([
             'plan' => ['required', Rule::in(['plus', 'pro'])],
             'period' => ['required', Rule::in(['month', 'year'])],
+            'method' => ['nullable', Rule::in(['card', 'stars'])],
         ]);
 
-        return $this->respond(fn () => $payments->createPlan($request->user(), $data['plan'], $data['period']));
+        if ($payments->isDowngrade($request->user(), $data['plan'])) {
+            return response()->json(['message' => 'A higher plan is active', 'code' => 'plan_downgrade'], 422);
+        }
+
+        return $this->respond(fn () => $payments->createPlan($request->user(), $data['plan'], $data['period'], $data['method'] ?? 'card'));
     }
 
     /** Polled by the app after the user comes back from the payment page. */
@@ -42,7 +49,7 @@ class PaymentController extends Controller
         try {
             $payment = $payments->sync($payment);
         } catch (Throwable $e) {
-            report($e); // keep the last known status; the webhook may still arrive
+            Log::warning('Payment sync failed', ['payment' => $payment->id, 'error' => Bot::scrub($e->getMessage())]);
         }
 
         return response()->json([
@@ -58,11 +65,11 @@ class PaymentController extends Controller
     public function webhook(Request $request, PaymentService $payments, YooKassa $yookassa)
     {
         $remoteId = $request->input('object.id');
-        if (! is_string($remoteId) || ! str_starts_with((string) $request->input('event'), 'payment.')) {
+        if (! is_string($remoteId) || strlen($remoteId) > 64 || ! str_starts_with((string) $request->input('event'), 'payment.')) {
             return response()->json(['ok' => true]);
         }
 
-        $payment = Payment::where('provider_payment_id', $remoteId)->first();
+        $payment = Payment::where('provider', 'yookassa')->where('provider_payment_id', $remoteId)->first();
         if (! $payment) {
             return response()->json(['ok' => true]); // not ours
         }
@@ -83,7 +90,7 @@ class PaymentController extends Controller
         try {
             return response()->json(['data' => new PaymentResource($make())], 201);
         } catch (Throwable $e) {
-            report($e);
+            Log::error('Payment was not created', ['error' => Bot::scrub($e->getMessage())]);
 
             return response()->json(['message' => 'Payment could not be created', 'code' => 'payment_error'], 502);
         }

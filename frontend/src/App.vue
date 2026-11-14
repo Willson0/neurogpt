@@ -5,9 +5,11 @@
     <div v-if="app.booting && !app.user" class="boot" role="status"><Sticker name="art" :size="96" glow glow-color="--plasma-2" /></div>
     <div v-else-if="app.bootError && !app.user" class="boot">
       <Sticker name="cry" :size="96" glow glow-color="--plasma-1" />
-      <h3>{{ unauthorized ? 'Откройте приложение из Telegram' : 'Нет соединения' }}</h3>
+      <h3>{{ !unauthorized ? 'Нет соединения' : 'Откройте приложение из Telegram' }}</h3>
       <p>{{ unauthorized ? 'Нужна авторизация через Telegram, откройте бота и нажмите кнопку.' : 'Проверьте интернет и попробуйте ещё раз.' }}</p>
       <button v-if="!unauthorized" type="button" class="pill-btn" @click="app.boot()">Повторить</button>
+      <!-- A plain browser: the admin signs in on the admin page. -->
+      <a v-else-if="browser" class="pill-btn" href="/admin">Вход для администратора</a>
     </div>
 
     <template v-else>
@@ -33,7 +35,6 @@ import FxLayer from './components/FxLayer.vue'
 import Sticker from './components/Sticker.vue'
 import SheetHost from './sheets/SheetHost.vue'
 import HomeView from './views/HomeView.vue'
-import ChatView from './views/ChatView.vue'
 import CreateView from './views/CreateView.vue'
 import GalleryView from './views/GalleryView.vue'
 import ProfileView from './views/ProfileView.vue'
@@ -45,12 +46,14 @@ export default {
   name: 'App',
   components: {
     PlasmaCanvas, BottomBar, Toast, FxLayer, Sticker, SheetHost,
-    home: HomeView, chat: ChatView, create: CreateView, gallery: GalleryView, profile: ProfileView,
+    home: HomeView, create: CreateView, gallery: GalleryView, profile: ProfileView,
     history: HistoryView, topup: TopupView, plans: PlansView,
   },
+
   computed: {
     app() { return useApp() },
     unauthorized() { return this.app.bootError?.status === 401 },
+    browser() { return !tg.initData },
   },
   watch: {
     'app.current'() { this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },
@@ -60,6 +63,8 @@ export default {
   mounted() {
     this.app.boot()
     tg.onVisible(() => { this.app.resumePayment(); this.app.refreshUser() })
+    // keyboard: Esc goes back on screens that have no sheet open (sheets close themselves)
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !this.app.sheet && this.app.canGoBack) this.app.back() })
   },
   methods: {
     syncBack() {

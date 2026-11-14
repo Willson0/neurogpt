@@ -12,7 +12,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->trustProxies(at: '*');
+        // Only our own reverse proxies (the nginx container, the host nginx) may set X-Forwarded-*.
+        // With "*" any client could forge its IP and walk past the YooKassa IP check and the rate limits.
+        // Sign-in and the admin check run before route model binding, so a stranger gets 401/403, never a 404 that reveals ids.
+        $middleware->prependToPriorityList(\Illuminate\Routing\Middleware\SubstituteBindings::class, \App\Http\Middleware\AdminOnly::class);
+        $middleware->prependToPriorityList(\App\Http\Middleware\AdminOnly::class, \App\Http\Middleware\TelegramAuth::class);
+        $middleware->trustProxies(at: ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

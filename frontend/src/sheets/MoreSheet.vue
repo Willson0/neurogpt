@@ -3,7 +3,7 @@
   <div style="display:grid;gap:var(--space-xs)">
     <span class="ctl-label">Стиль</span>
     <div class="filters" style="flex-wrap:wrap">
-      <button v-for="s in styles" :key="s" type="button" class="chip" :aria-pressed="String(app.style === s)" @click="app.style = s">{{ s[0].toUpperCase() + s.slice(1) }}</button>
+      <button v-for="s in app.styles" :key="s.id" type="button" class="chip" :aria-pressed="String(app.style === s.id)" @click="app.style = s.id">{{ s.name }}</button>
     </div>
   </div>
   <div style="display:grid;gap:var(--space-xs)">
@@ -27,7 +27,6 @@ import { useApp } from '../stores/app'
 
 export default {
   name: 'MoreSheet',
-  data: () => ({ styles: ['любой', 'фото', 'аниме', 'акварель', '3D'] }),
   computed: { app() { return useApp() } },
 }
 </script>

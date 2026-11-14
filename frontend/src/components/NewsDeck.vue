@@ -90,6 +90,7 @@ export default {
       else if (c.action === 'plans') a.push('plans')
       else if (c.action === 'models') a.openSheet('models')
       else if (c.action === 'invite') a.openSheet('invite')
+      else if (c.action === 'video') a.setMode('video')
     },
   },
 }

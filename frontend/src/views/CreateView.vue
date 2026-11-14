@@ -11,9 +11,9 @@
     <div v-if="showActions" class="actions-wrap" style="display:grid;gap:var(--space-md)">
       <div class="actions">
         <button type="button" class="act glass" style="--i:0" @click="download"><svg class="ic" aria-hidden="true"><use href="#i-down" /></svg>Скачать</button>
-        <button type="button" class="act glass" style="--i:1" @click="story"><svg class="ic" aria-hidden="true"><use href="#i-story" /></svg>В сторис</button>
+        <button v-if="!isSong" type="button" class="act glass" style="--i:1" @click="story"><svg class="ic" aria-hidden="true"><use href="#i-story" /></svg>В сторис</button>
         <button type="button" class="act glass" style="--i:2" :aria-pressed="String(!!current.is_favorite)" @click="fav"><svg class="ic" aria-hidden="true"><use href="#i-heart" /></svg>Избранное</button>
-        <button type="button" class="act glass" style="--i:3" @click="app.openSheet('resmore')"><svg class="ic" aria-hidden="true"><use href="#i-dots" /></svg>Ещё</button>
+        <button type="button" class="act glass" style="--i:3" @click="app.openSheet('resmore', { source: current.id })"><svg class="ic" aria-hidden="true"><use href="#i-dots" /></svg>Ещё</button>
       </div>
       <div class="rate">
         <span>Нравится?</span>
@@ -41,6 +41,7 @@ export default {
     gen() { return this.app.gen },
     current() { return this.gen?.items[this.sel] || this.gen?.items[0] || {} },
     isVideo() { return this.gen?.kind === 'video' },
+    isSong() { return this.gen?.kind === 'song' },
     showActions() {
       const g = this.gen
       return !!g && g.done && !g.failed && this.current.status === 'done' && this.revealed[this.sel]
@@ -50,7 +51,7 @@ export default {
       const g = this.gen
       if (!g) return ''
       if (g.done) return g.failed ? 'Не получилось' : 'Готово'
-      return this.isVideo ? 'Снимаем видео' : g.kind === 'tool' ? 'Обрабатываем' : 'Проявляем картинку'
+      return this.isVideo ? 'Снимаем видео' : this.isSong ? 'Сочиняем песню' : g.kind === 'tool' ? 'Обрабатываем' : 'Проявляем картинку'
     },
     eta() {
       const g = this.gen
@@ -64,6 +65,7 @@ export default {
     },
   },
   watch: {
+    'gen.ids'() { this.sel = 0; this.revealed = {} },
     'gen.done'(d) { if (d && !this.gen.failed) this.$nextTick(() => burstFrom(this.$el.querySelector('.stage'), 26, 150)) },
   },
   methods: {

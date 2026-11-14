@@ -8,10 +8,10 @@
       </LensBar>
       <button ref="cta" type="button" :class="['cta', ctaOpen ? 'open' : '']" :aria-label="ctaAria" @click="onCta">
         <span class="fab"><svg aria-hidden="true"><use href="#i-spark" /></svg></span>
-        <span class="lbl">
-          <template v-if="app.current === 'home' && hasPrompt && app.mode !== 'tools'">
-            <template v-if="short">Пополнить и создать</template>
-            <template v-else>{{ app.mode === 'text' ? 'Спросить' : 'Создать' }}<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
+        <span :class="['lbl', ctaOpen && short ? 'short' : '']">
+          <template v-if="app.current === 'home' && hasPrompt && composing">
+            <template v-if="short">Пополнить</template>
+            <template v-else>Создать<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
           </template>
           <template v-else-if="emptyGallery">Создать первую</template>
           <template v-else>Создать</template>
@@ -27,11 +27,6 @@
       <button v-if="foot && foot.sec" type="button" :class="['ghostbtn', foot.secDanger ? 'danger' : '']" @click="foot.onSec()">{{ foot.sec }}</button>
     </div>
 
-    <form v-if="app.current === 'chat'" class="composer glass" @submit.prevent="send">
-      <label for="chatInput" class="visually-hidden">Сообщение</label>
-      <input id="chatInput" v-model="text" name="message" autocomplete="off" :placeholder="`Сообщение, ${app.textModel.price} ${app.textModel.price === 1 ? 'токен' : 'токена'}`">
-      <button type="submit" class="send" aria-label="Отправить" :disabled="app.chat.busy"><svg class="ic-s" aria-hidden="true"><use href="#i-send" /></svg></button>
-    </form>
   </div>
 </template>
 
@@ -46,7 +41,7 @@ const ROOT = ['home', 'gallery', 'profile']
 export default {
   name: 'BottomBar',
   components: { LensBar },
-  data: () => ({ text: '', tabs: [
+  data: () => ({ tabs: [
     { id: 'home', icon: 'home', label: 'Главная' },
     { id: 'gallery', icon: 'image', label: 'Фотосеты' },
     { id: 'profile', icon: 'user', label: 'Профиль' },
@@ -57,7 +52,8 @@ export default {
     hasPrompt() { return this.app.prompt.trim().length > 0 },
     short() { return this.app.balance < this.app.cost },
     emptyGallery() { return this.app.current === 'gallery' && !this.app.photosets.length },
-    ctaOpen() { return (this.app.current === 'home' && this.app.mode !== 'tools' && this.hasPrompt) || this.emptyGallery },
+    composing() { return this.app.mode !== 'tools' && !(this.app.mode === 'song' && this.app.songsOff) },
+    ctaOpen() { return (this.app.current === 'home' && this.composing && this.hasPrompt) || this.emptyGallery },
     ctaAria() { return this.ctaOpen ? 'Создать' : 'Новая генерация' },
     native() { return tg.hasMainButton },
     /** What the primary/secondary action is on the current screen, or null when there is none. */
@@ -74,13 +70,13 @@ export default {
         const queued = g.items.every((i) => i.status === 'queued')
         return { main: 'Свернуть, пришлю в чат', sec: queued ? 'Отменить, токены вернутся' : null, secDanger: true, onMain: () => a.minimize(), onSec: () => a.cancelGeneration() }
       }
-      if (id === 'topup') return { main: `Оплатить ${fmt(a.pack.price)} ₽`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
-      if (id === 'plans' && a.tier !== 'free') {
+      if (id === 'topup') return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'plans' && a.tier !== 'free' && !(a.plan === 'pro' && a.tier === 'plus')) {
         const p = a.plans[a.tier]
         if (!p) return null
-        const price = a.period === 'month' ? p.month : p.year_month * 12
+        const price = a.priceLabel(a.period === 'month' ? p.month : p.year_month * 12, a.period === 'month' ? p.stars_month : p.stars_year)
         return {
-          main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${fmt(price)} ₽`,
+          main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${price}`,
           gold: a.tier === 'pro', shine: true, busy: a.busy, onMain: () => a.pay('plan'),
         }
       }
@@ -115,32 +111,20 @@ export default {
     onCta() {
       const a = this.app
       if (a.current === 'home' && this.ctaOpen) {
-        if (a.mode === 'text') return this.askText()
+        if (this.short) { tg.haptic('warning'); return a.openSheet('need', { lack: a.cost - a.balance }) }
         return a.start()
       }
       if (this.emptyGallery) { a.goTab('home'); return }
       tg.haptic('light')
       if (a.current !== 'home') a.goTab('home')
+      if (!this.composing) a.setMode('image')
       setTimeout(() => { document.getElementById('prompt')?.focus({ preventScroll: true }); a.kick(0.8) }, 260)
-    },
-    askText() {
-      const a = this.app
-      const q = a.prompt.trim()
-      a.openChat()
-      a.prompt = ''
-      this.$nextTick(() => a.sendMessage(q))
     },
     again() {
       const a = this.app
       if (a.gen?.photoset) return a.toast('Выберите фотосет ещё раз')
       a.stack = ['home']; a.tab = 'home'
       a.start()
-    },
-    send() {
-      const v = this.text.trim()
-      if (!v) return
-      this.text = ''
-      this.app.sendMessage(v)
     },
   },
 }

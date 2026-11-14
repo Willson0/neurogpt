@@ -15,30 +15,44 @@
 
     <h1 class="hero-h">Что создадим?<small>Напишите идею, остальное сделаем сами</small></h1>
 
+    <div class="home-a">
     <LensBar :active="app.mode" label="Что создаём">
-      <button v-for="m in modes" :key="m.id" type="button" role="tab" :aria-selected="String(app.mode === m.id)" @click="app.setMode(m.id)">{{ m.label }}</button>
+      <button v-for="m in modes" :key="m.id" type="button" role="tab" :aria-selected="String(app.mode === m.id)" @click="app.setMode(m.id)">{{ m.label }}<i v-if="m.id === 'song' && app.songsOff" class="soon-tag">скоро</i></button>
     </LensBar>
 
-    <div v-if="app.mode !== 'tools'" class="prompt glass">
+    <div v-if="songSoon" class="soon glass in-fade">
+      <Sticker name="hourglass" :size="72" glow glow-color="--plasma-2" />
+      <h2>Coming soon...</h2>
+      <p>Песни с вокалом по вашему тексту уже в работе. Сообщим в чате с ботом, когда запустим.</p>
+      <button type="button" class="pill-btn" @click="app.setMode('video')"><svg class="ic-s" aria-hidden="true"><use href="#i-video" /></svg>Попробовать видео</button>
+    </div>
+
+    <div v-else-if="app.mode !== 'tools'" class="prompt glass">
       <label for="prompt" class="visually-hidden">Запрос</label>
-      <textarea id="prompt" v-model="app.prompt" name="prompt" rows="3" maxlength="4000" :placeholder="placeholders[app.mode]" @input="app.kick(0.75)" @focus="app.kick(0.6)" />
+      <textarea id="prompt" v-model="app.prompt" name="prompt" rows="3" maxlength="4000" :placeholder="placeholders[app.mode]" @input="app.kick(0.75)" @focus="app.kick(0.6)" @keydown.enter="onEnter" @paste="onPaste" />
       <div class="prompt-row">
-        <label v-if="app.mode === 'image'" :class="['pill-btn', 'icon-only']" :aria-label="app.refFile ? 'Референс: ' + app.refFile.name : 'Добавить референс'" style="cursor:pointer">
+        <button v-if="app.refFile && hasRef" type="button" class="pill-btn ref-on" :title="app.refFile.name" aria-label="Убрать фото" @click="app.setRef(null)">
+          <svg class="ic-s" aria-hidden="true"><use href="#i-check" /></svg><span>{{ app.mode === 'video' ? 'Кадр' : 'Фото' }}</span><svg class="ic-s x" aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+        <label v-else-if="hasRef" :class="['pill-btn', 'icon-only']" :aria-label="app.mode === 'video' ? 'Добавить первый кадр' : 'Добавить референс'" :title="app.mode === 'video' ? 'Первый кадр видео' : 'Фото-образец'" style="cursor:pointer">
           <input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" @change="pickRef">
-          <svg class="ic-s" aria-hidden="true"><use :href="app.refFile ? '#i-check' : '#i-clip'" /></svg>
+          <svg class="ic-s" aria-hidden="true"><use href="#i-clip" /></svg>
         </label>
         <button v-if="app.mode === 'image' || app.mode === 'video'" type="button" class="pill-btn" aria-label="Формат" @click="app.cycleFormat()">
           <i class="frame-ico" :style="{ width: app.format.w + 'px', height: app.format.h + 'px' }" /><span>{{ app.format.ratio }}</span>
         </button>
         <button v-if="app.mode === 'video'" type="button" class="pill-btn" @click="app.toggleDuration()">
-          <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ app.duration }} секунд</span>
+          <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ app.durationOpt ? app.durationOpt.seconds : app.duration }} секунд</span>
+        </button>
+        <button v-if="app.mode === 'song'" type="button" class="pill-btn" @click="app.cycleSongDuration()">
+          <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ songLabel }}</span>
         </button>
         <span class="grow" />
-        <button type="button" class="pill-btn hot" @click="improve"><svg class="ic-s" aria-hidden="true"><use href="#i-wand" /></svg>Улучшить</button>
+        <button type="button" class="pill-btn hot" :disabled="app.improving" @click="improve"><svg class="ic-s" aria-hidden="true"><use href="#i-wand" /></svg>Улучшить</button>
       </div>
     </div>
 
-    <ul v-if="app.mode !== 'tools'" class="list glass">
+    <ul v-if="!songSoon && app.mode !== 'tools'" class="list glass">
       <li>
         <button type="button" class="row" @click="app.openSheet('models')">
           <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-bolt" /></svg></span>
@@ -49,25 +63,27 @@
       <li v-if="app.mode === 'image'">
         <button type="button" class="row" @click="app.openSheet('more')">
           <span class="sq"><svg class="ic-s" aria-hidden="true"><use href="#i-more" /></svg></span>
-          <span class="t"><b>Настройки</b><span>{{ app.count }} {{ plural(app.count, 'вариант', 'варианта', 'вариантов') }}, стиль {{ app.style }}</span></span>
+          <span class="t"><b>Настройки</b><span>{{ app.count }} {{ plural(app.count, 'вариант', 'варианта', 'вариантов') }}, стиль {{ app.styleName }}</span></span>
           <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
         </button>
       </li>
     </ul>
 
-    <ul v-else class="list glass in-fade">
+    <ul v-else-if="app.mode === 'tools'" class="list glass in-fade">
       <li v-for="t in app.tools" :key="t.id">
         <button type="button" class="row" @click="tool(t)">
-          <span class="sq"><svg class="ic-s" aria-hidden="true"><use :href="'#i-' + toolIcons[t.id]" /></svg></span>
+          <span class="sq"><svg class="ic-s" aria-hidden="true"><use :href="'#i-' + (t.icon || 'wand')" /></svg></span>
           <span class="t"><b>{{ t.name }}</b><span>{{ t.hint }}</span></span>
           <span class="end num">{{ tok(t.cost) }}</span>
         </button>
       </li>
     </ul>
 
+    </div>
+    <div class="home-b">
     <div v-if="app.trends.length" class="group" style="display:grid;gap:var(--space-sm)">
       <div class="sec-head"><h2>В тренде</h2></div>
-      <div class="trends">
+      <div v-drag-scroll class="trends">
         <button v-for="p in app.trends" :key="p.id" type="button" class="trend" @click="useTrend(p)">
           <ArtCanvas :src="p.cover_url" :seed="100 + p.id * 17" :palette="p.palette" :w="136" :h="176" />
           <span><b>{{ p.name }}</b>{{ p.trend_hint }}</span>
@@ -89,12 +105,12 @@
     </div>
 
     <NewsDeck />
+    </div>
   </div>
 </template>
 
 <script>
 import { useApp } from '../stores/app'
-import { api } from '../services/api'
 import { plural, tok } from '../services/format'
 import { tg } from '../services/telegram'
 import BalanceButton from '../components/BalanceButton.vue'
@@ -112,19 +128,24 @@ export default {
   name: 'HomeView',
   components: { BalanceButton, LensBar, Sticker, ArtCanvas, NewsDeck },
   data: () => ({
-    chats: [],
     modes: [
-      { id: 'text', label: 'Текст' }, { id: 'image', label: 'Фото' }, { id: 'video', label: 'Видео' }, { id: 'tools', label: 'Ещё' },
+      { id: 'image', label: 'Фото' }, { id: 'video', label: 'Видео' }, { id: 'song', label: 'Песня' }, { id: 'tools', label: 'Ещё' },
     ],
     placeholders: {
-      text: 'Письмо, идея, код, перевод: спросите что угодно',
       image: 'Кот-космонавт в стиле акварели',
       video: 'Волны на закате, камера летит вдоль берега',
+      song: 'Нежная песня про первый снег и тёплый чай',
     },
     toolIcons: { upscale: 'upscale', remove_bg: 'eraser', animate: 'video' },
   }),
   computed: {
     app() { return useApp() },
+    songSoon() { return this.app.mode === 'song' && this.app.songsOff },
+    hasRef() { return this.app.mode === 'image' || this.app.mode === 'video' },
+    songLabel() {
+      const d = this.app.songDuration
+      return d >= 60 ? `${d / 60} ${d === 60 ? 'минута' : 'минуты'}` : `${d} секунд`
+    },
     expiresIn() {
       const u = this.app.user
       if (!u || u.plan === 'free' || !u.plan_expires_at) return null
@@ -134,31 +155,29 @@ export default {
     recent() {
       const items = [
         ...this.app.recent.filter((g) => g.status === 'done' || g.status === 'processing' || g.status === 'queued').map((g) => ({
-          key: 'g' + g.id, at: g.created_at, icon: g.kind === 'video' ? 'video' : 'image',
-          title: g.prompt || 'Генерация', sub: `${g.kind === 'video' ? 'Видео' : 'Фото'}, ${ago(g.created_at)}`, open: () => this.app.openResult(g),
-        })),
-        ...this.chats.map((c) => ({
-          key: 'c' + c.id, at: c.updated_at, icon: 'text', title: c.title || 'Чат', sub: `Чат, ${ago(c.updated_at)}`, open: () => this.app.openChatById(c.id),
+          key: 'g' + g.id, at: g.created_at, icon: g.kind === 'video' ? 'video' : g.kind === 'song' ? 'music' : 'image',
+          title: g.prompt || g.title || 'Генерация', sub: `${g.kind === 'video' ? 'Видео' : g.kind === 'song' ? 'Песня' : g.kind === 'tool' ? 'Обработка' : 'Фото'}, ${ago(g.created_at)}`, open: () => this.app.openResult(g),
         })),
       ]
       return items.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 4)
     },
   },
-  async mounted() {
-    try { this.chats = (await api.chats()).slice(0, 3) } catch { /* optional block */ }
-  },
   methods: {
     plural, tok,
     improve(e) { this.app.improvePrompt() },
-    pickRef(e) { this.app.refFile = e.target.files[0] || null; if (this.app.refFile) tg.haptic('light') },
+    pickRef(e) { const f = e.target.files[0]; e.target.value = ''; if (f) this.app.setRef(f) },
+    onEnter(e) { if (e.ctrlKey || e.metaKey) { e.preventDefault(); this.app.start() } },
+    onPaste(e) {
+      const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/'))
+      if (f && this.hasRef) { e.preventDefault(); this.app.setRef(f) }
+    },
     tool(t) {
       tg.haptic('light')
-      if (this.app.balance < t.cost) return this.app.openSheet('need', { lack: t.cost - this.app.balance })
       this.app.openSheet('tool', { tool: t.id })
     },
     useTrend(p) {
-      this.app.useTemplate(p.prompt)
-      this.$nextTick(() => document.getElementById('prompt')?.scrollIntoView({ block: 'center', behavior: 'smooth' }))
+      tg.haptic('light')
+      this.app.openSheet('photoset', { id: p.id })
     },
   },
 }

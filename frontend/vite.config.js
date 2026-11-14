@@ -1,8 +1,23 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { resolve } from 'node:path'
+
+// /admin is a page of its own: in development it is served from admin.html like nginx does in production
+const adminPage = {
+  name: 'admin-page',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      if (/^\/admin\/?(\?|$)/.test(req.url)) req.url = req.url.replace(/^\/admin\/?/, '/admin.html')
+      next()
+    })
+  },
+}
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), adminPage],
+  build: {
+    rollupOptions: { input: { main: resolve(__dirname, 'index.html'), admin: resolve(__dirname, 'admin.html') } },
+  },
   server: {
     host: true,
     port: 5173,

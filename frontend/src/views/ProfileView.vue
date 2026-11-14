@@ -2,7 +2,7 @@
   <div class="view" data-view="profile">
     <div class="me">
       <div class="avatar">
-        <img v-if="u.photo_url" :src="u.photo_url" alt="" style="width:100%;height:100%;border-radius:inherit;object-fit:cover" referrerpolicy="no-referrer">
+        <img v-if="u.photo_url && !imgBad" :src="u.photo_url" alt="" style="width:100%;height:100%;border-radius:inherit;object-fit:cover" referrerpolicy="no-referrer" @error="imgBad = true">
         <span v-else>{{ (u.name || '?')[0] }}</span>
       </div>
       <h2>{{ u.name }}</h2>
@@ -34,7 +34,14 @@
           <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
         </button>
       </li>
-      <li v-if="support">
+      <li v-if="app.isAdmin">
+        <button type="button" class="row" @click="openAdmin()">
+          <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-gear" /></svg></span>
+          <span class="t"><b>Админка</b></span>
+          <span class="end"><svg class="chev" aria-hidden="true"><use href="#i-chev" /></svg></span>
+        </button>
+      </li>
+      <li v-if="support || app.supportUrl">
         <button type="button" class="row" @click="openSupport">
           <span class="sq"><svg class="ic-s" aria-hidden="true"><use href="#i-help" /></svg></span>
           <span class="t"><b>Помощь и документы</b></span>
@@ -46,7 +53,7 @@
 </template>
 
 <script>
-import { useApp } from '../stores/app'
+import { useApp, openAdmin } from '../stores/app'
 import { fmt } from '../services/format'
 import { tg } from '../services/telegram'
 import Sticker from '../components/Sticker.vue'
@@ -55,7 +62,7 @@ import Odometer from '../components/Odometer.vue'
 export default {
   name: 'ProfileView',
   components: { Sticker, Odometer },
-  data: () => ({ support: import.meta.env.VITE_SUPPORT_URL || '' }),
+  data: () => ({ support: import.meta.env.VITE_SUPPORT_URL || '', imgBad: false }),
   computed: {
     app() { return useApp() },
     u() { return this.app.user || {} },
@@ -66,8 +73,12 @@ export default {
     },
   },
   methods: {
+    openAdmin() { tg.haptic('light'); openAdmin() },
     fmt,
-    openSupport() { /^https:\/\/t\.me\//.test(this.support) ? tg.openTelegramLink(this.support) : tg.openLink(this.support) },
+    openSupport() {
+      const url = this.app.supportUrl || this.support
+      ;/^https:\/\/t\.me\//.test(url) ? tg.openTelegramLink(url) : tg.openLink(url)
+    },
   },
 }
 </script>

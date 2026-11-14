@@ -17,21 +17,22 @@ import { tok } from '../services/format'
 
 export default {
   name: 'ResultMoreSheet',
+  props: { source: { type: Number, default: null } },
   computed: {
     app() { return useApp() },
     items() {
       const t = (id) => this.app.tools.find((x) => x.id === id)
-      return [
-        { title: 'Улучшить качество', icon: 'upscale', price: tok(t('upscale')?.cost ?? 4), tool: 'upscale' },
-        { title: 'Похожие варианты', icon: 'redo', price: tok(this.app.model.price), again: true },
-        { title: 'Оживить в видео', icon: 'video', price: tok(t('animate')?.cost ?? 40), tool: 'animate' },
-      ]
+      const tools = ['upscale', 'remove_bg', 'animate'].map(t).filter(Boolean)
+        .map((x) => ({ title: x.name, icon: x.icon, price: tok(x.cost), tool: x.id }))
+      return [tools[0], { title: 'Похожие варианты', icon: 'redo', price: tok(this.app.model.price), again: true }, ...tools.slice(1)].filter(Boolean)
     },
   },
   methods: {
     pick(it) {
       this.app.closeSheet()
       if (it.again) { this.app.stack = ['home']; this.app.tab = 'home'; return this.app.start() }
+      // the picture on screen is the source: no second upload
+      if (this.source) return this.app.startTool(it.tool, null, this.source)
       setTimeout(() => this.app.openSheet('tool', { tool: it.tool }), 380)
     },
   },

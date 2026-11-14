@@ -8,7 +8,7 @@ use App\Models\Generation;
 /** Offline stand-in for local development and tests. */
 class FakeProvider implements Provider
 {
-    public function chat(AiModel $model, array $messages): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
         $last = collect($messages)->last()['content'] ?? '';
 
@@ -17,6 +17,10 @@ class FakeProvider implements Provider
 
     public function media(Generation $generation, AiModel $model, ?string $inputPath): MediaResult
     {
+        if ($generation->kind === 'song') {
+            return $this->tone((int) ($generation->params['duration'] ?? 30));
+        }
+
         mt_srand($generation->id * 7919);
         $c = fn () => sprintf('#%02x%02x%02x', mt_rand(40, 230), mt_rand(40, 230), mt_rand(40, 230));
         [$w, $h] = match ($generation->params['format'] ?? '1:1') {
@@ -34,6 +38,22 @@ class FakeProvider implements Provider
         SVG;
 
         return new MediaResult($svg, 'svg');
+    }
+
+    /** A short quiet chord as WAV, enough to try the player locally. */
+    private function tone(int $seconds): MediaResult
+    {
+        $rate = 8000;
+        $n = $rate * min($seconds, 6);
+        $pcm = '';
+        for ($i = 0; $i < $n; $i++) {
+            $t = $i / $rate;
+            $v = (sin(2 * M_PI * 440 * $t) + sin(2 * M_PI * 554 * $t) + sin(2 * M_PI * 659 * $t)) / 3 * 0.25 * min(1, ($n - $i) / $rate);
+            $pcm .= pack('v', (int) ($v * 32767) & 0xFFFF);
+        }
+        $head = 'RIFF'.pack('V', 36 + strlen($pcm)).'WAVEfmt '.pack('VvvVVvv', 16, 1, 1, $rate, $rate * 2, 2, 16).'data'.pack('V', strlen($pcm));
+
+        return new MediaResult($head.$pcm, 'wav');
     }
 
     private function r(float|int $max): int

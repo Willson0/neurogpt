@@ -6,7 +6,6 @@
       <div class="gets">
         <span class="glass">≈ {{ imgs }} картинок</span>
         <span class="glass">{{ vids }} {{ plural(vids, 'видео', 'видео', 'видео') }}</span>
-        <span class="glass">{{ fmt(app.pack.tokens) }} ответов</span>
         <span v-if="app.pack.badge" class="badge hot" style="margin:0;align-self:center">{{ app.pack.badge }}</span>
       </div>
     </div>
@@ -17,15 +16,10 @@
         <button v-for="(p, k) in app.packs" :key="p.tokens" type="button" :aria-pressed="String(k === app.packIndex)" @click="set(k)">{{ fmt(p.tokens) }}</button>
       </div>
     </div>
-    <ul class="list glass">
-      <li>
-        <div class="row">
-          <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-wallet" /></svg></span>
-          <span class="t"><b>Способ оплаты</b></span>
-          <span class="end">Карта или СБП</span>
-        </div>
-      </li>
-    </ul>
+    <div class="group" style="display:grid;gap:var(--space-sm)">
+      <div class="sec-head"><h2>Способ оплаты</h2><span class="sum num">{{ app.priceLabel(app.pack.price, app.pack.stars) }}</span></div>
+      <PayMethod />
+    </div>
     <div v-if="app.payment && app.payment.purpose === 'topup'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
       <span>Ждём подтверждения оплаты</span>
@@ -41,15 +35,16 @@ import { tg } from '../services/telegram'
 import Odometer from '../components/Odometer.vue'
 import TgsPlayer from '../components/TgsPlayer.vue'
 import Sticker from '../components/Sticker.vue'
+import PayMethod from '../components/PayMethod.vue'
 
 export default {
   name: 'TopupView',
-  components: { Odometer, TgsPlayer, Sticker },
+  components: { Odometer, TgsPlayer, Sticker, PayMethod },
   computed: {
     app() { return useApp() },
     fill() { return `${(this.app.packIndex / Math.max(1, this.app.packs.length - 1)) * 100}%` },
     imgs() { return Math.floor(this.app.pack.tokens / (this.app.models.image[0]?.price || 8)) },
-    vids() { return Math.floor(this.app.pack.tokens / (this.app.models.video.find((m) => m.id === 'clip')?.price || 40)) },
+    vids() { return Math.floor(this.app.pack.tokens / (this.app.models.video.find((m) => m.badge === 'Советуем')?.price || this.app.models.video[0]?.price || 40)) },
   },
   methods: {
     fmt, plural,

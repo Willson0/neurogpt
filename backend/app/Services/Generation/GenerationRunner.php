@@ -213,7 +213,7 @@ class GenerationRunner
         $id = $this->botSync->logQuery(
             (int) $g->user_id,
             (string) ($g->model?->provider_model ?: $g->model?->name ?: $g->tool ?: $g->kind),
-            $g->kind === 'tool' ? 'tool:'.$g->tool : ($g->photoset_id ? 'photoset' : $g->kind),
+            $g->kind === 'tool' ? 'tool:'.$g->tool : ($g->photoset_id && $g->kind === 'image' ? 'photoset' : $g->kind),
             (int) $g->cost,
             (string) ($g->prompt ?: $g->title()),
             Storage::disk('public')->url($path),

@@ -35,7 +35,7 @@ class BootstrapController extends Controller
                 ] : []),
             ])->values()),
             'photosets' => Photoset::active()->get()->map(fn ($p) => [
-                'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
+                'id' => $p->id, 'kind' => $p->kind ?: 'photo', 'name' => $p->name, 'description' => $p->description,
                 'cover_url' => $p->cover_url, 'seed' => $p->seed, 'palette' => $p->palette,
                 'trending' => $p->is_trending, 'trend_hint' => $p->trend_hint,
             ])->values(),

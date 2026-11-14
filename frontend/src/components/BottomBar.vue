@@ -43,7 +43,7 @@ export default {
   components: { LensBar },
   data: () => ({ tabs: [
     { id: 'home', icon: 'home', label: 'Главная' },
-    { id: 'gallery', icon: 'image', label: 'Фотосеты' },
+    { id: 'gallery', icon: 'image', label: 'Сеты' },
     { id: 'profile', icon: 'user', label: 'Профиль' },
   ] }),
   computed: {

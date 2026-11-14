@@ -1,10 +1,12 @@
 <template>
-  <img v-if="src" :src="src" alt="" :class="cls" loading="lazy">
+  <video v-if="src && video" :src="src" :class="cls" autoplay muted loop playsinline preload="metadata" aria-hidden="true" />
+  <img v-else-if="src" :src="src" alt="" :class="cls" loading="lazy">
   <canvas v-else ref="cv" :class="cls" width="10" height="10" aria-hidden="true" />
 </template>
 
 <script>
 import { paintArt } from '../services/art'
+import { isVideoUrl } from '../services/format'
 
 // A photoset cover: the uploaded image when there is one, generative art otherwise.
 export default {
@@ -17,6 +19,7 @@ export default {
     h: { type: Number, default: 226 },
     cls: { type: String, default: '' },
   },
+  computed: { video() { return isVideoUrl(this.src) } },
   mounted() { this.paint() },
   watch: { seed() { this.paint() }, palette() { this.paint() } },
   methods: {

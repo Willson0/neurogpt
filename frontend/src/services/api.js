@@ -28,7 +28,7 @@ function authHeader() {
   return null
 }
 
-async function request(method, path, { json, form, query } = {}) {
+async function request(method, path, { json, form, query, keepalive = false } = {}) {
   const headers = { Accept: 'application/json' }
   const auth = authHeader()
   if (auth) headers.Authorization = auth
@@ -41,7 +41,7 @@ async function request(method, path, { json, form, query } = {}) {
   const url = BASE + path + (query ? '?' + new URLSearchParams(query) : '')
   let res
   try {
-    res = await fetch(url, { method, headers, body })
+    res = await fetch(url, { method, headers, body, keepalive })
   } catch {
     throw new ApiError(0, { message: 'network', code: 'network' })
   }
@@ -64,6 +64,8 @@ export const api = {
   me: () => request('GET', '/me'),
   transactions: () => request('GET', '/transactions'),
   dailyBonus: () => request('POST', '/bonus/daily'),
+  /** Button presses and screen views for the admin analytics; keepalive lets the last batch leave with the page. */
+  events: (events, keepalive = false) => request('POST', '/events', { json: { events }, keepalive }),
   generations: (q) => request('GET', '/generations', { query: q }),
   generation: (id) => request('GET', `/generations/${id}`),
   createGeneration: (fields, file) => {
@@ -84,6 +86,8 @@ export const api = {
 /** The admin panel. Every call is checked on the server against the admin's Telegram id. */
 export const adminApi = {
   stats: (q) => request('GET', '/admin/stats', { query: clean(q) }),
+  analytics: (q) => request('GET', '/admin/analytics', { query: clean(q) }),
+  syncBot: () => request('POST', '/admin/models/sync'),
   settings: () => request('GET', '/admin/settings'),
   saveSettings: (values) => request('PUT', '/admin/settings', { json: { values } }),
   list: (what, q) => request('GET', `/admin/${what}`, { query: clean(q) }),

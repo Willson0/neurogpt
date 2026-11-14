@@ -19,7 +19,7 @@ export default {
   computed: {
     app() { return useApp() },
     ps() { return this.app.photosets.find((p) => p.id === this.id) },
-    price() { return (this.app.models.image.find((m) => m.id === this.app.modelSel.image) || this.app.models.image[0] || {}).price || 0 },
+    price() { return this.app.setPrice(this.ps) },
   },
   methods: {
     tok,

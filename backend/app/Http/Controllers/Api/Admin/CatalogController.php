@@ -6,10 +6,12 @@ use App\Exceptions\TooManyActive;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\GenerationResource;
 use App\Models\AiModel;
+use App\Models\Bot\BotModel;
 use App\Models\Generation;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Admin\Settings;
+use App\Services\Bot\BotSync;
 use App\Services\Generation\GenerationService;
 use App\Services\Generation\ImageNormalizer;
 use Illuminate\Http\Request;
@@ -39,10 +41,26 @@ class CatalogController extends Controller
     public function storeModel(Request $request)
     {
         $data = $this->modelData($request, true);
+        $toBot = $request->boolean('create_in_bot');
         if (AiModel::where('kind', $data['kind'])->where('slug', $data['slug'])->exists()) {
             throw ValidationException::withMessages(['slug' => 'Модель с таким id уже есть']);
         }
+        if ($toBot && ! BotModel::typeOf($data['kind'])) {
+            throw ValidationException::withMessages(['create_in_bot' => 'В боте есть только текстовые модели, модели картинок и видео']);
+        }
+        if ($toBot && empty($data['provider_model'])) {
+            throw ValidationException::withMessages(['provider_model' => 'Для бота нужна модель у провайдера: бот хранит её в поле name']);
+        }
         $data['sort'] ??= (int) AiModel::where('kind', $data['kind'])->max('sort') + 1;
+        if ($toBot) {
+            // A new row in the bot table `models` (rows are added, the table itself is not changed). Linked from here on.
+            $bot = BotModel::create([
+                'type' => BotModel::typeOf($data['kind']), 'name' => Str::limit($data['provider_model'], 100, ''),
+                'text_name' => Str::limit($data['name'], 100, ''), 'price' => (int) $data['price'],
+                'allowed_subs' => BotModel::subsFor($data['min_plan'] ?? 'free'), 'can_image' => false, 'tag' => '', 'params' => [],
+            ]);
+            $data['bot_model_id'] = $bot->id;
+        }
         $model = AiModel::create($data + ['edited_at' => now()]);
         Settings::forgetDeleted("model:{$model->kind}:{$model->slug}");
 
@@ -137,7 +155,20 @@ class CatalogController extends Controller
             'is_active' => $m->is_active, 'edited' => $m->edited_at !== null,
             // Linked to the bot table `models`: name, price and plan are the bot's and are saved there.
             'bot_model_id' => $m->bot_model_id,
+            'bot_missing' => $m->bot_model_id !== null && $m->bot === null,
+            'bot_name' => $m->bot?->name,
         ];
+    }
+
+    /** Pulls the bot catalog now (also runs every 5 minutes) and says what changed. */
+    public function syncBot(BotSync $sync)
+    {
+        $r = $sync->pullCatalog();
+
+        return response()->json(['data' => $r + [
+            'linked' => AiModel::whereNotNull('bot_model_id')->count(),
+            'bot_total' => BotModel::whereIn('type', array_keys(BotModel::KINDS))->count(),
+        ]]);
     }
 
     // ---------- tools: the text lives in settings, the switch and the provider in ai_models ----------
@@ -250,15 +281,19 @@ class CatalogController extends Controller
 
     // ---------- photosets ----------
 
-    public function photosets()
+    public function photosets(Request $request)
     {
-        return response()->json(['data' => Photoset::orderBy('sort')->orderBy('id')->get()->map(fn ($p) => $this->photoset($p))]);
+        $kind = $request->validate(['kind' => ['nullable', Rule::in(['photo', 'video'])]])['kind'] ?? null;
+
+        return response()->json(['data' => Photoset::when($kind, fn ($q) => $q->where('kind', $kind))
+            ->orderBy('sort')->orderBy('id')->get()->map(fn ($p) => $this->photoset($p))]);
     }
 
     public function savePhotoset(Request $request, ?Photoset $photoset = null)
     {
         $creating = $photoset === null;
         $data = $request->validate([
+            'kind' => ['sometimes', Rule::in(['photo', 'video'])],
             'name' => [$creating ? 'required' : 'sometimes', 'string', 'max:120'],
             'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'prompt' => [$creating ? 'required' : 'sometimes', 'string', 'max:6000'],
@@ -270,7 +305,7 @@ class CatalogController extends Controller
             'sort' => ['sometimes', 'integer', 'between:0,65000'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
-        $photoset ??= new Photoset(['sort' => (int) Photoset::max('sort') + 1]);
+        $photoset ??= new Photoset(['sort' => (int) Photoset::max('sort') + 1, 'kind' => 'photo']);
         $photoset->fill($data + ['edited_at' => now()])->save();
         Settings::forgetDeleted("photoset:{$photoset->name}");
 
@@ -301,9 +336,10 @@ class CatalogController extends Controller
         abort_unless($photoset->is_active, 422, 'Сначала включите фотосет');
 
         try {
+            $video = $photoset->isVideo();
             [$generation] = $service->create($request->user(), [
-                'kind' => 'image', 'photoset_id' => $photoset->id, 'format' => '9:16', 'model' => $request->input('model'),
-                'prompt' => $request->hasFile('file') ? '' : 'No reference photo is attached for this example: show a fictional adult person who fits the scene.',
+                'kind' => $photoset->generationKind(), 'photoset_id' => $photoset->id, 'format' => '9:16', 'model' => $request->input('model'),
+                'prompt' => $request->hasFile('file') || $video ? '' : 'No reference photo is attached for this example: show a fictional adult person who fits the scene.',
             ], $request->file('file'), free: true);
         } catch (TooManyActive $e) {
             throw ValidationException::withMessages(['file' => 'Дождитесь окончания предыдущих генераций']);
@@ -332,7 +368,8 @@ class CatalogController extends Controller
 
     private function photoset(Photoset $p): array
     {
-        return $p->only(['id', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending', 'trend_hint', 'sort', 'is_active', 'prompt_id']);
+        return ['kind' => $p->kind ?: 'photo']
+            + $p->only(['id', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending', 'trend_hint', 'sort', 'is_active', 'prompt_id']);
     }
 
     // ---------- news cards ----------
@@ -379,7 +416,15 @@ class CatalogController extends Controller
 
     public function upload(Request $request)
     {
-        $request->validate(['file' => ['required', 'file', 'max:'.config('neurogpt.upload_max_kb'), 'mimetypes:image/jpeg,image/png,image/webp']]);
+        $request->validate(['file' => ['required', 'file', 'max:'.max(20480, (int) config('neurogpt.upload_max_kb')), 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,application/mp4,video/webm']]);
+        $file = $request->file('file');
+        if (! str_starts_with((string) $file->getMimeType(), 'image/')) {
+            // A video set may show a short clip as its cover; videos are stored as they are.
+            $path = 'covers/'.Str::uuid().'.'.($file->getMimeType() === 'video/webm' ? 'webm' : 'mp4');
+            Storage::disk('public')->put($path, file_get_contents($file->getRealPath()));
+
+            return response()->json(['url' => '/storage/'.$path], 201);
+        }
         $image = ImageNormalizer::upload($request->file('file')->getRealPath());
         if (! @getimagesizefromstring($image->bytes)) {
             throw ValidationException::withMessages(['file' => 'Не получилось прочитать картинку']);

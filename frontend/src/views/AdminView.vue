@@ -39,8 +39,8 @@ export default {
     }),
     current: 'dashboard', contentUser: '',
     sections: [
-      { id: 'dashboard', name: 'Обзор' }, { id: 'content', name: 'Работы и промпты' }, { id: 'models', name: 'Модели' }, { id: 'tools', name: 'Инструменты' },
-      { id: 'showcase', name: 'Фотосеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
+      { id: 'dashboard', name: 'Аналитика' }, { id: 'content', name: 'Работы и промпты' }, { id: 'models', name: 'Модели' }, { id: 'tools', name: 'Инструменты' },
+      { id: 'showcase', name: 'Сеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
       { id: 'payments', name: 'Платежи и ЮKassa' }, { id: 'theme', name: 'Цвета' }, { id: 'users', name: 'Пользователи' },
     ],
   }),

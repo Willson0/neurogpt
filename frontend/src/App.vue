@@ -14,6 +14,11 @@
 
     <template v-else>
       <div id="scroll" ref="scroll" class="scroll">
+        <!-- Pushed screens (top-up, plans, history, generation) hide the dock. Telegram shows its back arrow in the header;
+             a plain browser or an old client had no way out except Esc, so the app draws its own. -->
+        <div v-if="app.canGoBack && !nativeBack" class="screen-back">
+          <button type="button" class="glass" data-track="Назад" @click="app.back()"><svg class="ic-s" aria-hidden="true"><use href="#i-back" /></svg>Назад</button>
+        </div>
         <component :is="app.current" :key="app.current" :class="app.transition" />
       </div>
       <BottomBar />
@@ -54,6 +59,7 @@ export default {
     app() { return useApp() },
     unauthorized() { return this.app.bootError?.status === 401 },
     browser() { return !tg.initData },
+    nativeBack() { return tg.hasBackButton },
   },
   watch: {
     'app.current'() { this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },

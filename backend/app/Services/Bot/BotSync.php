@@ -129,11 +129,11 @@ class BotSync
      * Brings bot models and prompts into the app catalog. New bot rows get an app row linked to them; existing links
      * refresh their local copy (used for sorting and as a fallback). Nothing is written to the bot tables here.
      *
-     * @return array{models:int, photosets:int}
+     * @return array{models:int, photosets:int, updated:int, missing:int}
      */
     public function pullCatalog(): array
     {
-        $created = ['models' => 0, 'photosets' => 0];
+        $created = ['models' => 0, 'photosets' => 0, 'updated' => 0, 'missing' => 0];
 
         $deleted = (array) config('neurogpt.deleted');
         DB::transaction(function () use (&$created, $deleted) {
@@ -145,8 +145,12 @@ class BotSync
                     continue; // the admin removed it from the app
                 }
                 if ($row = $linked->get($bot->id)) {
-                    $row->setRawAttributes(array_merge($row->getAttributes(), $local));
-                    $row->saveQuietly();
+                    $before = $row->getAttributes();
+                    $row->setRawAttributes(array_merge($before, $local));
+                    if ($row->isDirty()) {
+                        $row->saveQuietly();
+                        $created['updated']++;
+                    }
 
                     continue;
                 }
@@ -168,7 +172,12 @@ class BotSync
                 $created['models']++;
             }
 
+            // App rows linked to a bot model that is gone from the bot table: shown in the admin panel as "нет в боте".
+            $created['missing'] = AiModel::whereNotNull('bot_model_id')->whereNotIn('bot_model_id', BotModel::query()->select('id'))->count();
+
             $linkedSets = Photoset::whereNotNull('prompt_id')->get()->keyBy('prompt_id');
+            // A bot prompt whose recommended model (prompts.model) is a video model becomes a video set.
+            $videoModels = BotModel::where('type', 'video')->pluck('name')->map(fn ($n) => strtolower((string) $n))->all();
             foreach (BotPrompt::orderBy('position')->orderBy('id')->get() as $p) {
                 if (in_array("bot:prompt:{$p->id}", $deleted, true)) {
                     continue;
@@ -180,7 +189,8 @@ class BotSync
 
                     continue;
                 }
-                $row = new Photoset(['seed' => ($p->id * 37) % 100, 'palette' => $p->id % 5, 'is_active' => true]);
+                $kind = $p->model && in_array(strtolower($p->model), $videoModels, true) ? 'video' : 'photo';
+                $row = new Photoset(['kind' => $kind, 'seed' => ($p->id * 37) % 100, 'palette' => $p->id % 5, 'is_active' => true]);
                 $row->forceFill(['prompt_id' => $p->id] + $local)->save();
                 $created['photosets']++;
             }

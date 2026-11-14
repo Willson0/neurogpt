@@ -32,7 +32,7 @@
         <h3>Стили картинок</h3>
         <p class="adm-note">Текст стиля добавляется к промпту пользователя. У стиля «any» текста нет.</p>
         <div v-for="(s, i) in styles" :key="i" class="adm-line">
-          <label class="adm-f">Id<input v-model.trim="s.id" required pattern="[a-z0-9_-]+" maxlength="32" :readonly="s.id === 'any' && s.locked"></label>
+          <label class="adm-f">Id<input v-model.trim="s.id" required pattern="[a-z0-9_\-]+" maxlength="32" :readonly="s.id === 'any' && s.locked"></label>
           <label class="adm-f">Название<input v-model.trim="s.name" required maxlength="32"></label>
           <label class="adm-f" style="grid-column:span 2">Текст для модели<input v-model.trim="s.prompt" maxlength="1000" :disabled="s.id === 'any'"></label>
           <button v-if="!(s.id === 'any' && s.locked)" type="button" class="x" aria-label="Убрать стиль" @click="styles.splice(i, 1)"><svg class="ic-s" aria-hidden="true"><use href="#i-close" /></svg></button>

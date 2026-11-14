@@ -109,3 +109,24 @@
    and changes nothing on screen, so glass cards are drawn as plain translucent surfaces. */
 .adm-page .glass { -webkit-backdrop-filter: none; backdrop-filter: none; }
 .adm-page .app { min-height: 100dvh; }
+
+/* Analytics: a bar chart by day and ranked lists. Same gradient as the old 14-day chart. */
+.adm-plot { position: relative; height: 200px; margin: var(--space-xs) 0 var(--space-md) 34px; touch-action: pan-y; }
+.adm-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.adm-plot .grid line { stroke: var(--color-rule); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 3 4; }
+.adm-plot .bar { fill: var(--plasma-1); opacity: 0.85; transition: opacity var(--dur-short) var(--ease-out); }
+.adm-plot .bar.on { opacity: 1; fill: var(--plasma-2); }
+.adm-plot .axis-y span { position: absolute; left: -34px; width: 30px; text-align: right; transform: translateY(50%); font-size: 0.625rem; color: var(--color-muted); }
+.adm-plot .axis-x span { position: absolute; top: calc(100% + 4px); transform: translateX(-50%); font-size: 0.625rem; color: var(--color-muted); white-space: nowrap; }
+.adm-plot .tip { position: absolute; top: -6px; transform: translate(-50%, -100%); background: var(--color-surface); box-shadow: 0 4px 16px rgb(0 0 0 / 0.25), inset 0 0 0 1px var(--color-rule); border-radius: var(--radius-ctl); padding: var(--space-3xs) var(--space-xs); display: grid; justify-items: center; pointer-events: none; white-space: nowrap; z-index: 2; }
+.adm-plot .tip b { font-size: var(--text-2); } .adm-plot .tip span { font-size: 0.6875rem; color: var(--color-muted); }
+.adm-hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); }
+.adm-hbars li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-sm); row-gap: 4px; font-size: var(--text-cap); }
+.adm-hbars .lbl { min-width: 0; display: grid; }
+.adm-hbars .lbl b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adm-hbars .lbl small, .adm-hbars .val small { color: var(--color-muted); font-size: 0.6875rem; }
+.adm-hbars .val { font-variant-numeric: tabular-nums; white-space: nowrap; align-self: start; }
+.adm-hbars i { grid-column: 1 / -1; display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--plasma-1), var(--plasma-2)); }
+.adm-card .adm-bar > h3 { font-size: var(--text-body); }
+.adm-plot .tip.l { transform: translate(-12px, -100%); } .adm-plot .tip.r { transform: translate(calc(-100% + 12px), -100%); }
+.adm-grid.wide > .adm-card { align-content: start; }

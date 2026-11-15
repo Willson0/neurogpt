@@ -4,11 +4,8 @@ namespace App\Services\Bot;
 
 use App\Models\AiModel;
 use App\Models\Bot\BotModel;
-use App\Models\Bot\BotPayment;
 use App\Models\Bot\BotPrompt;
 use App\Models\Bot\QueryLog;
-use App\Models\Bot\ShopItem;
-use App\Models\Payment;
 use App\Models\Photoset;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +16,7 @@ use Throwable;
 
 /**
  * Everything the app writes into, or reads from, the bot tables besides `users` balances (see Wallet):
- * delivered payments -> `payments` (+ users.paid_money), requests -> `query_logs`,
+ * requests -> `query_logs`,
  * and the bot catalog (`models`, `prompts`) -> the app catalog (wa_models, wa_photosets).
  */
 class BotSync
@@ -50,69 +47,7 @@ class BotSync
     }
 
     // ---------- payments ----------
-
-    /**
-     * A payment the app has delivered becomes a row of the bot table `payments` with was_bought = is_proceed = true,
-     * so the bot counts it in its statistics but never delivers it a second time. Pending payments are not written there.
-     */
-    public function mirrorPayment(Payment $payment): ?BotPayment
-    {
-        if (! config('neurogpt.bot.mirror_payments') || $payment->bot_payment_id || ! $payment->credited_at) {
-            return null;
-        }
-
-        $rub = (float) ($payment->rub_amount ?? $payment->amount);
-        $row = BotPayment::create([
-            'payment_id' => Str::limit((string) ($payment->provider_payment_id ?: 'webapp:'.$payment->idempotence_key), 128, ''),
-            'is_autopayment' => false,
-            'was_bought' => true,
-            'is_proceed' => true,
-            'user_id' => $payment->user_id,
-            'recipient_id' => $payment->user_id,
-            'item_id' => $this->shopItem($payment)->id,
-            'total' => (float) $payment->amount,
-            'total_valut' => $payment->currency ?: 'RUB',
-            'rub_total' => $rub,
-        ]);
-        User::whereKey($payment->user_id)->increment('paid_money', $rub);
-        $payment->forceFill(['bot_payment_id' => $row->id])->saveQuietly();
-
-        return $row;
-    }
-
-    /**
-     * The `shop` row a purchase belongs to (payments.item_id is required): the row it was bought by, otherwise looked up by category, item and amount;
-     * when the bot has no such row, a hidden one (active = false) is added so it does not appear in the bot menu.
-     */
-    public function shopItem(Payment $payment): ShopItem
-    {
-        // Bought by shop id (the normal way now): that very row.
-        if ($payment->shop_item_id && ($row = ShopItem::find($payment->shop_item_id))) {
-            return $row;
-        }
-
-        $cfg = config('neurogpt.bot.shop');
-        if ($payment->purpose === 'topup') {
-            // the bot names its packs tokens_300, tokens_800...: a pack is found by category and amount
-            $found = ShopItem::where(['category' => $cfg['tokens_category'], 'amount' => (int) $payment->tokens])
-                ->orderByDesc('active')->orderBy('id')->first();
-            if ($found) {
-                return $found;
-            }
-            $attrs = ['category' => $cfg['tokens_category'], 'item' => $cfg['tokens_item'], 'amount' => (int) $payment->tokens];
-            $name = "{$payment->tokens} токенов";
-        } else {
-            $days = $payment->period === 'year' ? 365 : 30;
-            $attrs = ['category' => $cfg['sub_category'], 'item' => (string) $payment->plan, 'amount' => $cfg['sub_amount'] === 'months' ? ($days === 365 ? 12 : 1) : $days];
-            $name = 'Подписка '.config("neurogpt.plans.{$payment->plan}.name", $payment->plan).($days === 365 ? ', год' : ', месяц');
-        }
-
-        return ShopItem::where($attrs)->orderByDesc('active')->orderBy('id')->first()
-            ?? ShopItem::create($attrs + [
-                'active' => false, 'text_name' => Str::limit($name, 128, ''), 'price' => (int) round((float) ($payment->rub_amount ?? $payment->amount)),
-                'description' => 'Создано веб-приложением', 'tag' => 'webapp',
-            ]);
-    }
+    // Payments are written straight into the bot table `payments` by PaymentService (see App\Models\Payment).
 
     // ---------- statistics ----------
 

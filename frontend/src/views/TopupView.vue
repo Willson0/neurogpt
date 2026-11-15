@@ -17,8 +17,9 @@
       </div>
     </div>
     <div class="group" style="display:grid;gap:var(--space-sm)">
-      <div class="sec-head"><h2>Способ оплаты</h2><span class="sum num">{{ app.priceLabel(app.pack.price, app.pack.stars) }}</span></div>
+      <div class="sec-head"><h2>Способ оплаты</h2><span class="sum num">{{ app.priceLabel(app.pack.price, app.pack.stars, app.payTarget) }}</span></div>
       <PayMethod />
+      <PromoField v-if="app.pack.item_id" />
     </div>
     <div v-if="app.payment && app.payment.purpose === 'topup'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
@@ -36,10 +37,11 @@ import Odometer from '../components/Odometer.vue'
 import TgsPlayer from '../components/TgsPlayer.vue'
 import Sticker from '../components/Sticker.vue'
 import PayMethod from '../components/PayMethod.vue'
+import PromoField from '../components/PromoField.vue'
 
 export default {
   name: 'TopupView',
-  components: { Odometer, TgsPlayer, Sticker, PayMethod },
+  components: { Odometer, TgsPlayer, Sticker, PayMethod, PromoField },
   computed: {
     app() { return useApp() },
     fill() { return `${(this.app.packIndex / Math.max(1, this.app.packs.length - 1)) * 100}%` },

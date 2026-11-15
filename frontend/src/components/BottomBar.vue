@@ -70,11 +70,16 @@ export default {
         const queued = g.items.every((i) => i.status === 'queued')
         return { main: 'Свернуть, пришлю в чат', sec: queued ? 'Отменить, токены вернутся' : null, secDanger: true, onMain: () => a.minimize(), onSec: () => a.cancelGeneration() }
       }
-      if (id === 'topup') return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'topup') return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars, a.payTarget)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'pay') {
+        const i = a.payItem
+        if (!i || !i.available) return null
+        return { main: `Оплатить ${a.priceLabel(i.price, i.stars, i)}`, gold: i.plan === 'pro', shine: true, busy: a.busy, onMain: () => a.pay('item') }
+      }
       if (id === 'plans' && a.tier !== 'free' && !(a.plan === 'pro' && a.tier === 'plus')) {
         const p = a.plans[a.tier]
         if (!p) return null
-        const price = a.priceLabel(a.period === 'month' ? p.month : p.year_month * 12, a.period === 'month' ? p.stars_month : p.stars_year)
+        const price = a.priceLabel(a.period === 'month' ? p.month : p.year_month * 12, a.period === 'month' ? p.stars_month : p.stars_year, a.payTarget)
         return {
           main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${price}`,
           gold: a.tier === 'pro', shine: true, busy: a.busy, onMain: () => a.pay('plan'),

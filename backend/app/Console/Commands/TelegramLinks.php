@@ -32,9 +32,10 @@ class TelegramLinks extends Command
         foreach (AiModel::active()->where('kind', 'tool')->get() as $t) {
             $screens[] = ["tool-{$t->slug}", 'Инструмент: '.$t->name];
         }
-        // a purchase screen for every row of the bot's shop: buy-<shop.id>
-        foreach (app(Shop::class)->tokenItems()->concat(app(Shop::class)->subItems()) as $i) {
-            $screens[] = ["buy-{$i->id}", "Купить: {$i->text_name} ({$i->price} ₽)"];
+        // the payment screen of every row of the bot's shop: pay-<shop.id> (buy-<shop.id> = the pack/plan screen with it chosen)
+        $items = app(Shop::class)->tokenItems()->concat(app(Shop::class)->subItems());
+        foreach ($items as $i) {
+            $screens[] = ["pay-{$i->id}", "Оплата: {$i->text_name} ({$i->price} ₽)"];
         }
         foreach (Photoset::where('is_active', true)->orderBy('sort')->get() as $p) {
             $screens[] = ["photoset-{$p->id}", 'Фотосет: '.$p->name];
@@ -48,6 +49,11 @@ class TelegramLinks extends Command
         $this->newLine();
         $this->table(['Экран', 'Что откроется', 'URL для web_app кнопки', 'Прямая ссылка t.me'],
             array_map(fn ($s) => [$s[0], $s[1], Bot::webAppUrl($s[0]), Bot::directLink($s[0]) ?? '—'], $screens));
+        if ($items->isNotEmpty()) {
+            $this->newLine();
+            $this->line('Ссылки на оплату (обычный GET-адрес, страница оплаты с товаром):');
+            $this->table(['shop.id', 'Товар', 'Ссылка'], $items->map(fn ($i) => [$i->id, $i->text_name, Bot::payLink($i->id)])->all());
+        }
 
         return self::SUCCESS;
     }

@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\AiModel;
 use App\Models\Bot\BotModel;
-use App\Models\Bot\BotPayment;
 use App\Models\Bot\BotPrompt;
 use App\Models\Bot\QueryLog;
 use App\Models\Bot\ShopItem;
@@ -135,12 +134,20 @@ class BotDatabaseTest extends TestCase
         $this->assertSame('text', QueryLog::where('user_id', 781)->value('type'));
     }
 
-    public function test_paid_payment_is_mirrored_into_the_bot_tables_once(): void
+    public function test_a_payment_lives_in_the_bot_table_from_the_start(): void
     {
         $this->user(782, 0);
-        $payment = Payment::find($this->as(782)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->json('data.id'));
+        $id = $this->as(782)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->json('data.id');
+
+        // written to the bot table `payments` at once, waiting for the money
+        $this->assertSame(1, DB::table('payments')->count());
+        $row = DB::table('payments')->first();
+        $this->assertSame([(int) $id, 0, 0, 'XTR', 780.0], [(int) $row->id, (int) $row->is_proceed, (int) $row->was_bought, $row->total_valut, (float) $row->rub_total]);
+        $this->assertFalse(Schema::hasTable('wa_payments') && DB::table('wa_payments')->exists(), 'the old app table is not written any more');
+
+        $payment = Payment::find($id);
         $msg = ['message_id' => 9, 'chat' => ['id' => 782, 'type' => 'private'], 'from' => ['id' => 782],
-            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->amount,
+            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->total,
                 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_1']];
         $hook = fn () => $this->withHeaders(['X-Telegram-Bot-Api-Secret-Token' => 'whsecret'])->postJson('/api/telegram/webhook', ['update_id' => 1, 'message' => $msg]);
         $hook()->assertOk();
@@ -152,27 +159,41 @@ class BotDatabaseTest extends TestCase
         $this->assertSame(1000, (int) $user->sub_tokens, 'plan tokens go to sub_tokens');
         $this->assertSame(780.0, (float) $user->paid_money);
 
-        $this->assertSame(1, BotPayment::count());
-        $bp = BotPayment::first();
+        $this->assertSame(1, Payment::count());
+        $bp = Payment::first();
         $this->assertTrue($bp->was_bought && $bp->is_proceed);
-        $this->assertSame('XTR', $bp->total_valut);
-        $this->assertSame(780.0, $bp->rub_total);
+        $this->assertSame(['XTR', 780.0, 'ch_1'], [$bp->total_valut, $bp->rub_total, $bp->payment_id]);
         $this->assertSame([782, 782], [(int) $bp->user_id, (int) $bp->recipient_id]);
         $item = ShopItem::find($bp->item_id);
         $this->assertSame(['sub', 'plus', 30, false], [$item->category, $item->item, $item->amount, $item->active]);
-        $this->assertSame($bp->id, (int) $payment->refresh()->bot_payment_id);
+        $this->assertSame('succeeded', $bp->status);
+    }
+
+    public function test_bot_marked_bought_first_is_not_delivered_twice(): void
+    {
+        $this->user(785, 0);
+        $payment = Payment::find($this->as(785)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'stars'])->json('data.id'));
+        // the bot processed this row itself (and delivered it) before Telegram told the app
+        DB::table('payments')->where('id', $payment->id)->update(['was_bought' => true, 'is_proceed' => true]);
+        $this->withHeaders(['X-Telegram-Bot-Api-Secret-Token' => 'whsecret'])->postJson('/api/telegram/webhook', ['update_id' => 2, 'message' => [
+            'message_id' => 1, 'chat' => ['id' => 785, 'type' => 'private'], 'from' => ['id' => 785],
+            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->total,
+                'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_9'],
+        ]])->assertOk();
+
+        $this->assertSame(0, User::find(785)->balance, 'the app does not credit again');
+        $this->assertSame('delivered_by_bot', $payment->refresh()->details->cancel_reason);
     }
 
     public function test_an_existing_shop_item_is_reused(): void
     {
-        $item = ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 450]);
-        $user = $this->user(783, 0);
-        $p = Payment::create(['user_id' => 783, 'provider' => 'yookassa', 'provider_payment_id' => 'yk-1', 'idempotence_key' => 'k1',
-            'purpose' => 'topup', 'tokens' => 500, 'amount' => 450, 'rub_amount' => 450, 'status' => 'succeeded', 'credited_at' => now()]);
-        app(BotSync::class)->mirrorPayment($p);
+        // an inactive bot row with the same pack and price: a config pack payment points to it instead of a new row
+        $item = ShopItem::create(['active' => false, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 450]);
+        $this->user(783, 0);
+        config(['neurogpt.stars.rub_per_star' => 2.0]);
+        $this->as(783)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'stars'])->assertCreated();
 
-        $this->assertSame($item->id, (int) BotPayment::firstOrFail()->item_id);
-        $this->assertSame('yk-1', BotPayment::firstOrFail()->payment_id);
+        $this->assertSame($item->id, (int) Payment::firstOrFail()->item_id);
         $this->assertSame(1, ShopItem::count());
     }
 

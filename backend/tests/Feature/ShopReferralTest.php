@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Bot\BotPayment;
 use App\Models\Bot\ShopItem;
 use App\Models\Payment;
 use App\Models\User;
@@ -66,7 +65,7 @@ class ShopReferralTest extends TestCase
         $this->user(1, 0);
         $boot = $this->as(1)->getJson('/api/bootstrap')->assertOk();
         $this->assertSame([3, 4, 5], array_column($boot->json('packs'), 'item_id'), 'only active rows with a price, cheapest first');
-        $this->assertSame(['item_id' => 3, 'tokens' => 500, 'price' => 249, 'name' => '300 токенов', 'badge' => 'Новичок', 'stars' => 125, 'photo' => 15, 'video' => 0, 'emoji' => '💫'],
+        $this->assertSame(['item_id' => 3, 'tokens' => 500, 'price' => 249, 'name' => '300 токенов', 'badge' => 'Новичок', 'stars' => 125, 'category' => 'token', 'photo' => 15, 'video' => 0, 'emoji' => '💫'],
             $boot->json('packs.0'));
         $this->assertSame([true, 8, 749, null], [$boot->json('plans.pro.available'), $boot->json('plans.pro.item_month'), $boot->json('plans.pro.month'), $boot->json('plans.pro.item_year')]);
         $this->assertFalse($boot->json('plans.plus.available'), 'the shop sells no Plus');
@@ -107,8 +106,8 @@ class ShopReferralTest extends TestCase
         $this->assertTrue($buyer->ref_paid);
         $this->assertSame(49, (int) $inviter->refresh()->ref_balance, '20 % of 249 ₽, rounded down');
         $this->assertSame(0, $inviter->balance, 'the commission is rubles on ref_balance, not tokens');
-        $this->assertSame([100, 49], [Payment::find($id)->referrer_id, Payment::find($id)->ref_amount]);
-        $bot = BotPayment::sole();
+        $this->assertSame([100, 49], [Payment::find($id)->details->referrer_id, Payment::find($id)->details->ref_amount]);
+        $bot = Payment::sole();
         $this->assertSame([3, 249.0, true], [(int) $bot->item_id, $bot->rub_total, $bot->was_bought]);
         $this->assertEquals(249, DB::table('users')->where('id', 200)->value('paid_money'));
 
@@ -142,7 +141,7 @@ class ShopReferralTest extends TestCase
         $this->hook('payment.succeeded', ['id' => 'yk_30'])->assertOk(); // a late repeat of the success does not pay again
         $this->assertSame(10, (int) $inviter->refresh()->ref_balance);
         $p = Payment::find($id);
-        $this->assertSame(['refunded', 129, 129, '649.00'], [$p->status, $p->ref_amount, $p->ref_reverted, $p->refunded_amount]);
+        $this->assertSame(['refunded', 129, 129, '649.00'], [$p->status, $p->details->ref_amount, $p->details->ref_reverted, $p->details->refunded_amount]);
         $this->assertEquals(0, DB::table('users')->where('id', 200)->value('paid_money'));
         $this->assertSame(1500, $buyer->refresh()->balance, 'the buyer keeps the tokens: support decides');
 
@@ -171,7 +170,7 @@ class ShopReferralTest extends TestCase
         $this->fakeYooKassa('yk_50', '249.00', ['status' => 'canceled', 'cancellation_details' => ['reason' => 'expired_on_confirmation']]);
         $id = $this->as(200)->postJson('/api/payments/item', ['item_id' => 3])->json('data.id');
         $this->hook('payment.canceled', ['id' => 'yk_50'])->assertOk();
-        $this->assertSame(['canceled', 'expired_on_confirmation'], [Payment::find($id)->status, Payment::find($id)->cancel_reason]);
+        $this->assertSame(['canceled', 'expired_on_confirmation'], [Payment::find($id)->status, Payment::find($id)->details->cancel_reason]);
         $this->assertSame(0, (int) $inviter->refresh()->ref_balance);
 
         // someone without an inviter, and someone whose inviter is gone
@@ -180,7 +179,7 @@ class ShopReferralTest extends TestCase
         $this->fakeYooKassa('yk_51', '249.00', ['status' => 'succeeded', 'paid' => true]);
         $id = $this->as(300)->postJson('/api/payments/item', ['item_id' => 3])->json('data.id');
         $this->hook('payment.succeeded', ['id' => 'yk_51'])->assertOk();
-        $this->assertSame([null, 0], [Payment::find($id)->referrer_id, Payment::find($id)->ref_amount]);
+        $this->assertSame([null, 0], [Payment::find($id)->details->referrer_id, Payment::find($id)->details->ref_amount]);
         $this->assertSame(500, User::find(300)->balance);
     }
 
@@ -190,7 +189,7 @@ class ShopReferralTest extends TestCase
         Http::fake(['api.telegram.org/*/createInvoiceLink' => Http::response(['ok' => true, 'result' => 'https://t.me/$inv']), 'api.telegram.org/*' => Http::response(['ok' => true, 'result' => true])]);
         $payment = Payment::find($this->as(200)->postJson('/api/payments/item', ['item_id' => 8, 'method' => 'stars'])->assertCreated()
             ->assertJsonPath('data.amount', 375)->assertJsonPath('data.plan', 'pro')->json('data.id'));
-        $this->assertSame([30, 'month', 3000], [$payment->days, $payment->period, $payment->tokens]);
+        $this->assertSame([30, 'month', 3000], [$payment->details->days, $payment->period, $payment->tokens]);
 
         $paid = ['message' => ['from' => ['id' => 200], 'chat' => ['id' => 200, 'type' => 'private'], 'successful_payment' => [
             'currency' => 'XTR', 'total_amount' => 375, 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_9',
@@ -203,7 +202,7 @@ class ShopReferralTest extends TestCase
         $this->assertTrue($buyer->plan_expires_at->between(now()->addDays(29), now()->addDays(31)));
         $this->assertSame(3000, (int) $buyer->sub_tokens);
         $this->assertSame(149, (int) $inviter->refresh()->ref_balance, '20 % of the 749 ₽ price');
-        $this->assertSame(8, (int) BotPayment::sole()->item_id);
+        $this->assertSame(8, (int) Payment::sole()->item_id);
 
         // a cheaper plan than the active one is refused
         ShopItem::forceCreate(['id' => 11, 'active' => true, 'text_name' => 'Plus', 'category' => 'sub', 'item' => 'plus', 'amount' => 30, 'price' => 300]);

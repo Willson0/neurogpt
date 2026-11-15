@@ -88,12 +88,12 @@ class Shop
     {
         $items = $this->tokenItems();
         if ($items->isEmpty()) {
-            return collect(config('neurogpt.packs'))->map(fn ($p) => $p + ['stars' => PaymentService::stars($p['price'])])->values()->all();
+            return collect(config('neurogpt.packs'))->map(fn ($p) => $p + ['stars' => PaymentService::stars($p['price']), 'category' => config('neurogpt.bot.shop.tokens_category')])->values()->all();
         }
 
         return $items->map(fn (ShopItem $i) => [
             'item_id' => $i->id, 'tokens' => (int) $i->amount, 'price' => (int) $i->price, 'name' => $i->text_name,
-            'badge' => $i->tag ?: null, 'stars' => PaymentService::stars($i->price),
+            'badge' => $i->tag ?: null, 'stars' => PaymentService::stars($i->price), 'category' => $i->category,
         ] + self::extras($i))->values()->all();
     }
 
@@ -106,8 +106,10 @@ class Shop
         $plans = collect(config('neurogpt.plans'));
         $items = $this->subItems();
         $stars = fn ($rub) => $rub ? PaymentService::stars($rub) : 0;
+        $category = config('neurogpt.bot.shop.sub_category');
 
-        return $plans->map(function ($p, $key) use ($items, $stars) {
+        return $plans->map(function ($p, $key) use ($items, $stars, $category) {
+            $p['category'] = $category;
             if ($items->isEmpty() || $key === 'free') {
                 return $p + ['available' => true, 'stars_month' => $stars($p['month']), 'stars_year' => $stars($p['year_month'] * 12)];
             }
@@ -125,6 +127,61 @@ class Shop
                 'stars_year' => $year ? $stars($year->price) : 0,
             ]);
         })->all();
+    }
+
+    /**
+     * The shop row for a pack / plan that comes from config (the shop has no such row). payments.item_id is required,
+     * so a matching row is reused, or a hidden one (active = 0, tag "webapp") is added: it does not appear in the bot menu.
+     */
+    public function rowFor(array $attrs): ShopItem
+    {
+        $cfg = config('neurogpt.bot.shop');
+        if ($attrs['purpose'] === 'topup') {
+            $found = ShopItem::where(['category' => $cfg['tokens_category'], 'amount' => (int) $attrs['tokens']])
+                ->where('price', (int) round($attrs['price']))->orderByDesc('active')->orderBy('id')->first();
+            $row = ['category' => $cfg['tokens_category'], 'item' => $cfg['tokens_item'], 'amount' => (int) $attrs['tokens']];
+            $name = "{$attrs['tokens']} токенов";
+        } else {
+            $days = (int) ($attrs['days'] ?? 30);
+            $row = ['category' => $cfg['sub_category'], 'item' => (string) $attrs['plan'], 'amount' => $cfg['sub_amount'] === 'months' ? max(1, (int) round($days / 30)) : $days];
+            $found = ShopItem::where($row)->where('price', (int) round($attrs['price']))->orderByDesc('active')->orderBy('id')->first();
+            $name = 'Подписка '.config("neurogpt.plans.{$attrs['plan']}.name", $attrs['plan']).($days >= 300 ? ', год' : ', месяц');
+        }
+
+        return $found ?? ShopItem::create($row + [
+            'active' => false, 'text_name' => mb_substr($name, 0, 128), 'price' => (int) round($attrs['price']),
+            'description' => 'Создано веб-приложением', 'tag' => 'webapp',
+        ]);
+    }
+
+    /** Any row by id for the payment link page, also an inactive one (then it cannot be bought). */
+    public function any(int $id): ?ShopItem
+    {
+        try {
+            return ShopItem::find($id);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /** One shop row as the app shows it on the payment screen. */
+    public function card(ShopItem $item): array
+    {
+        $tokens = $this->isTokens($item);
+
+        return [
+            'item_id' => (int) $item->id,
+            'name' => (string) $item->text_name,
+            'category' => (string) $item->category,
+            'kind' => $tokens ? 'tokens' : 'plan',
+            'tokens' => $tokens ? (int) $item->amount : (int) config("neurogpt.plans.{$item->item}.tokens", 0) * max(1, (int) round(self::days($item) / 30)),
+            'plan' => $tokens ? null : (string) $item->item,
+            'days' => $tokens ? null : self::days($item),
+            'price' => (int) $item->price,
+            'stars' => PaymentService::stars($item->price),
+            'badge' => $item->tag ?: null,
+            'available' => (bool) $this->find((int) $item->id),
+        ] + ($tokens ? self::extras($item) : []);
     }
 
     /** The shop row for "plan + period" from the old endpoint, when the shop sells subscriptions. */

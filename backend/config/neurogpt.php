@@ -22,7 +22,6 @@ return [
             'video' => env('BOT_DEFAULT_VIDEO_MODEL_ID'),
         ],
         // A paid purchase is also written to the bot table `payments` (was_bought = is_proceed = true) and users.paid_money.
-        'mirror_payments' => (bool) env('BOT_MIRROR_PAYMENTS', true),
         // Every generation and chat answer is also written to `query_logs`.
         'query_logs' => (bool) env('BOT_QUERY_LOGS', true),
         // How a purchase is found in the bot table `shop` (payments.item_id is required).

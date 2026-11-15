@@ -35,6 +35,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('generate', $perUser(20));
         RateLimiter::for('improve', $perUser(10));
         RateLimiter::for('pay', $perUser(10));
+        RateLimiter::for('promo', $perUser(20));   // guessing promo codes one by one stays slow
         RateLimiter::for('events', $perUser(60));  // the app sends a batch every few seconds at most
     }
 }

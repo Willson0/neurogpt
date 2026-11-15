@@ -169,7 +169,7 @@ class PaymentTest extends TestCase
         $this->as(1)->postJson('/api/payments/topup', ['tokens' => 999999])->assertStatus(422);
         $this->as(1)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'bitcoin'])->assertStatus(422);
         $this->as(1)->getJson('/api/bootstrap')->assertJsonPath('payments.card', false)->assertJsonPath('payments.stars', false);
-        $this->assertSame(0, Payment::where('status', 'pending')->count());
+        $this->assertSame(0, Payment::state('pending')->count());
     }
 
     public function test_start_command_registers_the_referral_and_stale_payments_expire(): void

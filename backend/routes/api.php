@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AnalyticsController;
 use App\Http\Controllers\Api\Admin\CatalogController;
 use App\Http\Controllers\Api\Admin\ContentController;
 use App\Http\Controllers\Api\Admin\PaymentsController;
+use App\Http\Controllers\Api\Admin\PromosController;
 use App\Http\Controllers\Api\Admin\SettingsController;
 use App\Http\Controllers\Api\Admin\UsersController;
 use App\Http\Controllers\Api\BootstrapController;
@@ -27,6 +28,9 @@ Route::get('config', fn () => response()->json([
     'bot_username' => config('neurogpt.telegram.bot_username'),
     'theme' => config('neurogpt.theme'),
 ]))->middleware('throttle:guard');
+
+// The payment link of a shop row (GET /pay/{id} in the app): what is sold, without sign-in.
+Route::get('pay/{item}', [PaymentController::class, 'link'])->whereNumber('item')->middleware('throttle:guard');
 
 // throttle:guard counts by IP before the signature is checked, throttle:api counts by user after it.
 Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->group(function () {
@@ -53,6 +57,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::post('payments/topup', [PaymentController::class, 'topup'])->middleware('throttle:pay');
     Route::post('payments/plan', [PaymentController::class, 'plan'])->middleware('throttle:pay');
     Route::get('payments/{payment}', [PaymentController::class, 'show'])->whereNumber('payment');
+    Route::post('promos/check', [PaymentController::class, 'checkPromo'])->middleware('throttle:promo');
 });
 
 // The admin panel. AdminOnly checks the Telegram id on the server for every route below.
@@ -99,6 +104,12 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::post('users/{user}/balance', [UsersController::class, 'balance'])->whereNumber('user');
     Route::get('payments', [PaymentsController::class, 'index']);
     Route::post('payments/{payment}/sync', [PaymentsController::class, 'sync'])->whereNumber('payment');
+    // The bot's shop with a payment link per row, and promo codes (bot table promos + the panel's limits).
+    Route::get('shop', [PromosController::class, 'shop']);
+    Route::get('promos', [PromosController::class, 'index']);
+    Route::post('promos', [PromosController::class, 'store']);
+    Route::patch('promos/{promo}', [PromosController::class, 'update'])->whereNumber('promo');
+    Route::delete('promos/{promo}', [PromosController::class, 'destroy'])->whereNumber('promo');
     // Reading is open to every admin (the secret key is never returned); changing is checked inside for the main admin.
     Route::get('yookassa', [PaymentsController::class, 'yookassa']);
     Route::put('yookassa', [PaymentsController::class, 'saveYookassa']);

@@ -27,6 +27,7 @@
     </ul>
 
     <PayMethod v-if="app.tier !== 'free'" />
+    <PromoField v-if="app.tier !== 'free' && app.payTarget" />
 
     <div v-if="app.payment && app.payment.purpose === 'plan'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
@@ -43,6 +44,7 @@ import { tg } from '../services/telegram'
 import LensBar from '../components/LensBar.vue'
 import Sticker from '../components/Sticker.vue'
 import PayMethod from '../components/PayMethod.vue'
+import PromoField from '../components/PromoField.vue'
 
 const META = {
   free: { sticker: 'sparkles', feats: ['Базовые модели картинок и видео', 'Ежедневный бонус токенов', 'Общая очередь'] },
@@ -52,7 +54,7 @@ const META = {
 
 export default {
   name: 'PlansView',
-  components: { LensBar, Sticker, PayMethod },
+  components: { LensBar, Sticker, PayMethod, PromoField },
   data: () => ({ tilt: {} }),
   computed: {
     app() { return useApp() },

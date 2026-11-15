@@ -70,6 +70,9 @@ export const useApp = defineStore('app', {
     payMethod: 'card',
     payment: null, // pending payment being watched
     busy: false,
+    promo: null, // applied promo code: { code, discount, item_ids, category, min_price }
+    starsRate: 2, // rubles per star
+    payItem: null, // the shop row of the payment screen (/pay/<id>, startapp=pay-<id>)
 
     plasma: { target: 0.35, speed: 1 },
   }),
@@ -95,8 +98,47 @@ export const useApp = defineStore('app', {
     songsOff: (s) => !s.features.songs,
     payMethods() { return ['card', 'stars'].filter((m) => this.payments[m]) },
     method() { return this.payMethods.includes(this.payMethod) ? this.payMethod : this.payMethods[0] || null },
-    /** Price of a pack or plan in the chosen payment method, ready to show. */
-    priceLabel() { return (rub, stars) => (this.method === 'stars' ? `${Number(stars || 0).toLocaleString('ru-RU')} ⭐` : `${Number(rub || 0).toLocaleString('ru-RU')} ₽`) },
+    /**
+     * Percent off the applied promo code gives on a shop item ({ item_id, price, category }), 0 when it does not apply.
+     * Dates and limits were checked by the server when the code was applied; the server checks everything again on payment.
+     */
+    promoOff() {
+      return (item) => {
+        const p = this.promo
+        if (!p || !item) return 0
+        if (p.item_ids && p.item_ids.length && !p.item_ids.includes(item.item_id)) return 0
+        if (p.category && item.category && p.category !== item.category) return 0
+        if (p.min_price && Number(item.price) < p.min_price) return 0
+        return p.discount
+      }
+    },
+    /** The price after the promo code: rubles rounded like on the server, stars recounted from them. */
+    discounted() {
+      return (rub, stars, item) => {
+        const off = this.promoOff(item)
+        if (!off) return { rub, stars, off: 0 }
+        const r = Math.max(1, Math.round((Number(rub) * (100 - off)) / 100))
+        return { rub: r, stars: Math.max(1, Math.ceil(r / (this.starsRate || 1))), off }
+      }
+    },
+    /** Price of a pack or plan in the chosen payment method, ready to show (with the promo code when item is given). */
+    priceLabel() {
+      return (rub, stars, item = null) => {
+        const d = item ? this.discounted(rub, stars, item) : { rub, stars }
+        return this.method === 'stars' ? `${Number(d.stars || 0).toLocaleString('ru-RU')} ⭐` : `${Number(d.rub || 0).toLocaleString('ru-RU')} ₽`
+      }
+    },
+    /** The shop item being bought on the current screen, for the promo code. */
+    payTarget() {
+      if (this.current === 'pay') return this.payItem
+      if (this.current === 'topup') return this.pack.item_id ? { item_id: this.pack.item_id, price: this.pack.price, category: this.pack.category } : null
+      if (this.current === 'plans' && this.tier !== 'free') {
+        const p = this.plans[this.tier]
+        const id = p?.[`item_${this.period}`]
+        return id ? { item_id: id, price: this.period === 'year' ? Math.round(p.year_month * 12) : p.month, category: p.category } : null
+      }
+      return null
+    },
     modelList: (s) => s.models[s.mode === 'tools' ? 'image' : s.mode] || [],
     model() {
       const list = this.models[this.mode === 'tools' ? 'image' : this.mode] || []
@@ -160,6 +202,7 @@ export const useApp = defineStore('app', {
       this.styles = d.styles || []
       this.features = { songs: false, ...d.features }
       this.payments = { card: false, stars: false, ...d.payments }
+      this.starsRate = Number(d.stars_rate) || this.starsRate
       this.limits = { upload_mb: 10, ...d.limits }
       this.supportUrl = d.support_url || null
       this.bonus = d.bonus
@@ -430,6 +473,8 @@ export const useApp = defineStore('app', {
         if (e.code === 'too_many_active') return this.toast('Дождитесь текущих генераций', 'hourglass')
         if (e.code === 'plan_downgrade') return this.toast('У вас уже тариф выше')
         if (e.code === 'payment_error') return this.toast('Не удалось создать платёж', 'cry')
+        if (String(e.code || '').startsWith('promo_')) { this.promo = null; return this.toast(e.body.message || 'Промокод не подходит', 'cry') }
+        if (e.code === 'unknown_item') return this.toast('Этот товар сейчас нельзя купить', 'cry')
         if (e.status === 413) return this.toast(`Фото больше ${this.limits.upload_mb} МБ`, 'cry')
         if (e.status === 422) return this.toast(Object.values(e.body.errors || {}).flat()[0] || 'Проверьте запрос')
         if (e.code === 'network') return this.toast('Нет соединения', 'cry')
@@ -455,11 +500,14 @@ export const useApp = defineStore('app', {
       this.busy = true
       try {
         // The bot's shop is the price list: the server gets only the shop item id and takes the price from it.
-        const itemId = kind === 'topup' ? this.pack.item_id : this.plans[this.tier]?.[`item_${this.period}`]
+        const itemId = kind === 'item' ? this.payItem?.item_id : kind === 'topup' ? this.pack.item_id : this.plans[this.tier]?.[`item_${this.period}`]
+        const target = kind === 'item' ? this.payItem : itemId ? this.payTarget : null
+        // the code goes along only where it applies (the server checks it again)
+        const promo = this.promo && (!target || this.promoOff(target)) ? this.promo.code : undefined
         const r = itemId
-          ? await api.buyItem(itemId, method)
-          : kind === 'topup' ? await api.topup(this.pack.tokens, method) : await api.buyPlan(this.tier, this.period, method)
-        this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, startedAt: Date.now() }
+          ? await api.buyItem(itemId, method, promo)
+          : kind === 'topup' ? await api.topup(this.pack.tokens, method, promo) : await api.buyPlan(this.tier, this.period, method, promo)
+        this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, itemId: r.data.item_id, startedAt: Date.now() }
         if (method === 'stars') {
           this.busy = false
           const status = await tg.openInvoice(r.data.confirmation_url)
@@ -499,10 +547,48 @@ export const useApp = defineStore('app', {
       this.setUser(r.user)
       tg.haptic('success')
       confetti()
+      this.promo = null
       this.toast(p.purpose === 'plan' ? `Подписка ${this.planName} активна` : `Начислено ${tok(p.tokens)}`, 'party')
-      if (['topup', 'plans'].includes(this.current)) setTimeout(() => ['topup', 'plans'].includes(this.current) && this.back(), 900)
+      const screens = ['topup', 'plans', 'pay']
+      if (screens.includes(this.current)) setTimeout(() => screens.includes(this.current) && (this.canGoBack ? this.back() : this.goTab('home')), 900)
     },
     resumePayment() { if (this.payment) this.watchPayment() },
+
+    // ---------- promo codes ----------
+    /** "Применить": the server says whether the code works for this person (and the current item). */
+    async applyPromo(code) {
+      code = String(code || '').trim()
+      if (!code || this.busy) return false
+      this.busy = true
+      try {
+        const r = await api.checkPromo(code, this.payTarget?.item_id)
+        this.promo = r.data
+        tg.haptic('success')
+        this.toast(`Промокод применён: −${r.data.discount}%`, 'party')
+        return true
+      } catch (e) {
+        this.promo = null
+        tg.haptic('warning')
+        this.toast(e instanceof ApiError && e.body?.message && e.status === 422 ? e.body.message : 'Не получилось проверить промокод', 'cry')
+        return false
+      } finally {
+        this.busy = false
+      }
+    },
+    clearPromo() { this.promo = null },
+
+    /** The payment screen of one shop row: opened by /pay/<id> or startapp=pay-<id>. */
+    async openPay(itemId) {
+      try {
+        const r = await api.payItem(itemId)
+        this.payItem = r.data
+        if (this.current !== 'pay') this.push('pay')
+        return true
+      } catch {
+        this.toast('Этот товар не найден', 'cry')
+        return false
+      }
+    },
 
     // ---------- misc ----------
     inviteLink() {

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AiModel;
 use App\Models\Generation;
 use App\Models\Photoset;
+use App\Services\Generation\Tools;
 use App\Models\User;
 use App\Services\Generation\GenerationRunner;
 use App\Services\Generation\MediaResult;
@@ -125,14 +126,14 @@ class GenerationTest extends TestCase
 
         foreach (config('neurogpt.tools') as $id => $tool) {
             $this->assertNotEmpty($tool['prompt'], "tool $id has a prompt");
-            $this->assertNotNull(AiModel::where('kind', 'tool')->where('slug', $id)->first(), "tool $id is seeded");
+            $this->assertSame((string) $tool['name'], Tools::model($id)->name, "tool $id runs without a catalog row");
         }
     }
 
     public function test_failure_refunds_once_and_a_late_result_is_ignored(): void
     {
         $user = $this->user(1, 50);
-        $model = AiModel::where('kind', 'image')->where('slug', 'auto')->first();
+        $model = AiModel::slugged('image', 'auto');
         $g = Generation::create(['user_id' => $user->id, 'kind' => 'image', 'ai_model_id' => $model->id, 'prompt' => 'x', 'cost' => 8, 'status' => 'processing', 'started_at' => now()]);
         $this->setBalance($user, 42);
 
@@ -152,7 +153,7 @@ class GenerationTest extends TestCase
     {
         config(['neurogpt.limits.active_generations' => 2]);
         $user = $this->user(1, 500);
-        $model = AiModel::where('kind', 'image')->first();
+        $model = AiModel::ofKind('image')->first();
         foreach ([1, 2] as $i) {
             Generation::create(['user_id' => $user->id, 'kind' => 'image', 'ai_model_id' => $model->id, 'prompt' => 'x', 'cost' => 8, 'status' => 'processing']);
         }

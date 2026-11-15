@@ -3,40 +3,29 @@
 namespace Database\Seeders;
 
 use App\Models\AiModel;
-use App\Models\Bot\BotModel;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Bot\BotSync;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Str;
 
 /**
- * The catalog: models, tools, photosets, news. Safe to run on every start. It fills the app tables (wa_*) from
- * config/neurogpt.php and .env, but never overwrites a row the admin has edited in the panel (edited_at), a row
- * linked to the bot (bot_model_id / prompt_id: the bot's values win), and never brings back a row the admin deleted.
+ * Safe to run on every start.
  *
- * Bot tables are written only on an empty local database: when `models` has no rows at all, the config models
- * are added there too, because models.py requires a text, photo and video model for every user.
- * Then the bot catalog (models, prompts) is pulled into the app (BotSync::pullCatalog).
+ * The catalog (models, photosets) is the bot tables `models` and `prompts`: the seeder writes them only on an empty
+ * local database (no row in `models` at all), because models.py requires a text, photo and video model for every
+ * user. On a real bot database nothing is added there; new bot rows only get their app meta (BotSync::pullCatalog).
+ * News cards are the app's own (wa_news): refreshed from here unless the admin edited or deleted them.
  */
 class DatabaseSeeder extends Seeder
 {
-    /** Creates or refreshes a catalog row unless the admin owns it by now. */
+    /** Creates or refreshes a news card unless the admin owns it by now. */
     private function sync(string $class, array $key, array $attrs, string $tag): void
     {
         if (in_array($tag, (array) config('neurogpt.deleted'), true)) {
             return;
         }
         $row = $class::where($key)->first();
-        if ($row?->bot_model_id || $row?->prompt_id) {
-            return;
-        }
         if ($row?->edited_at) {
-            // An edited row keeps its values. Only a placeholder driver follows .env, e.g. once KIE_API_KEY appears.
-            if (isset($attrs['driver']) && in_array($row->driver, ['fake', 'unavailable'], true) && $row->driver !== $attrs['driver']) {
-                $row->update(['driver' => $attrs['driver'], 'provider_model' => $attrs['provider_model'] ?? $row->provider_model]);
-            }
-
             return;
         }
         $class::updateOrCreate($key, $attrs);
@@ -44,14 +33,32 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        $emptyBot = BotModel::query()->count() === 0;
+        if (AiModel::query()->count() === 0) {
+            $this->fillEmptyBotCatalog();
+        }
 
-        $driver = config('neurogpt.providers.default');
-        $kieDriver = config('neurogpt.providers.kie_driver');
+        // ---- news cards on the home screen ----
+        $news = [
+            ['Видео из текста и фото', 'Veo 3.1, Kling 3.0 и Seedance уже здесь', 'rocket', 'ember', 'video'],
+            ['Позовите друга', 'Обоим по '.config('neurogpt.bonus.referral').' токенов', 'gift', 'gold', 'invite'],
+            ['1 500 токенов выгоднее', 'Скидка 20% на большой пакет', 'moneybag', 'ink', 'topup'],
+        ];
+        foreach ($news as $i => [$title, $sub, $stk, $style, $action]) {
+            $this->sync(News::class, ['title' => $title], ['subtitle' => $sub, 'sticker' => $stk, 'style' => $style, 'action' => $action, 'sort' => $i, 'is_active' => true], "news:$title");
+        }
+        News::whereNotIn('title', array_column($news, 0))->whereNull('edited_at')->update(['is_active' => false]);
+
+        app(BotSync::class)->pullCatalog();
+    }
+
+    /** A fresh local database: the config catalog goes to the bot tables `models` and `prompts`. */
+    private function fillEmptyBotCatalog(): void
+    {
+        // the provider is not stored: an empty driver follows .env (providers.default, KIE_API_KEY, the song model)
         $text = config('neurogpt.providers.openai.text_model');
         $image = config('neurogpt.providers.openai.image_model');
 
-        // ---- text (the bot chat) and images: the OpenAI-compatible provider ----
+        // ---- text (the bot chat) and images ----
         $models = [
             'text' => [
                 ['auto', 'Авто', 'Сама выберет лучшую модель', 1, 'Советуем', true, 'free', $text],
@@ -68,10 +75,10 @@ class DatabaseSeeder extends Seeder
         ];
         foreach ($models as $kind => $list) {
             foreach ($list as $i => [$slug, $name, $hint, $price, $badge, $fast, $min, $remote]) {
-                $this->sync(AiModel::class, ['kind' => $kind, 'slug' => $slug], [
+                $this->model($kind, $slug, $remote, [
                     'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast,
-                    'min_plan' => $min, 'driver' => $driver, 'provider_model' => $remote, 'sort' => $i, 'is_active' => true,
-                ], "model:$kind:$slug");
+                    'min_plan' => $min, 'sort' => $i, 'is_active' => true,
+                ]);
             }
         }
 
@@ -79,15 +86,12 @@ class DatabaseSeeder extends Seeder
         $video = config('neurogpt.video');
         $sort = 0;
         foreach ($video as $slug => $m) {
-            $this->sync(AiModel::class, ['kind' => 'video', 'slug' => $slug], [
+            $this->model('video', $slug, $m['provider_model'], [
                 'name' => $m['name'], 'hint' => $m['hint'], 'price' => $m['price'], 'badge' => $m['badge'] ?? null,
-                'is_fast' => $m['fast'] ?? false, 'min_plan' => $m['min_plan'], 'driver' => $kieDriver,
-                'provider_model' => $m['provider_model'], 'sort' => $sort++, 'is_active' => true,
+                'is_fast' => $m['fast'] ?? false, 'min_plan' => $m['min_plan'], 'sort' => $sort++, 'is_active' => true,
                 'options' => array_intersect_key($m, array_flip(['family', 'tier', 'mode', 'resolution', 'durations', 'formats'])),
-            ], "model:video:$slug");
+            ]);
         }
-        // Models of the previous catalog are switched off, their history stays.
-        AiModel::where('kind', 'video')->whereNull('edited_at')->whereNull('bot_model_id')->whereNotIn('slug', array_keys($video))->update(['is_active' => false]);
 
         // ---- songs: hidden behind "Coming soon" until FEATURE_SONGS=true and a music model is set ----
         $songModel = config('neurogpt.providers.song_model');
@@ -96,90 +100,49 @@ class DatabaseSeeder extends Seeder
             ['quick', 'Быстрая', 'Набросок мелодии за минуту', 20, null, true, 'free'],
             ['studio', 'Студия', 'Богаче звук и аранжировка', 50, null, false, 'plus'],
         ] as $i => [$slug, $name, $hint, $price, $badge, $fast, $min]) {
-            $this->sync(AiModel::class, ['kind' => 'song', 'slug' => $slug], [
+            $this->model('song', $slug, $songModel ?: 'song-'.$slug, [
                 'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast, 'min_plan' => $min,
-                'driver' => $songModel ? 'replicate' : 'unavailable', 'provider_model' => $songModel, 'sort' => $i,
+                'sort' => $i,
                 'is_active' => (bool) config('neurogpt.features.songs'),
-            ], "model:song:$slug");
+            ]);
         }
 
-        // ---- tools of the "Ещё" tab ----
-        $sort = 0;
-        foreach (config('neurogpt.tools') as $slug => $t) {
-            $viaKie = $t['driver'] === 'kie' && $kieDriver !== 'unavailable';
-            $video = ($t['output'] ?? null) === 'video';
-            $this->sync(AiModel::class, ['kind' => 'tool', 'slug' => $slug], [
-                'name' => $t['name'], 'hint' => $t['hint'], 'price' => $t['cost'], 'sort' => $sort++,
-                // Without a kie.ai key, upscale and background removal fall back to the image model and its prompt.
-                'driver' => $viaKie ? $kieDriver : $driver,
-                'provider_model' => $viaKie ? $t['provider_model'] : $image,
-                'options' => $viaKie ? array_intersect_key($t, array_flip(['family', 'tier', 'resolution', 'duration', 'factor'])) : null,
-                // A video tool cannot fall back to an image model.
-                'is_active' => $viaKie || ! $video,
-            ], "model:tool:$slug");
+        if (Photoset::query()->count() === 0) {
+            // ---- photosets: a ready idea applied to the user's own photo ----
+            $keep = 'Use the attached photo as the only reference for the person. Keep the face fully recognizable: same facial features, face shape, skin tone, eye color, hair color and hairstyle, same apparent age and gender. One person in the frame unless the photo shows several. No text, no watermarks, no extra limbs or fingers.';
+            $sets = [
+                ['Аниме-аватар', 3, 3, 'Ваш портрет в стиле аниме: мягкий свет, пастельные тона и аккуратные контуры. Подойдёт для аватарки.',
+                    "Redraw the person as a high-quality anime character portrait: clean line art, cel shading, large expressive eyes, soft pastel palette, gentle rim light, simple dreamy background with bokeh. Head-and-shoulders framing. $keep", 'Из вашего селфи'],
+                ['Деловой портрет', 41, 4, 'Студийное фото в деловом стиле: для резюме, сайта и соцсетей.',
+                    "Create a professional corporate headshot of the person: tailored dark blazer, soft diffused studio lighting, neutral gray gradient background, shoulders-up framing, sharp focus on the eyes, natural skin texture, confident friendly expression. Photorealistic, like a photo by a professional photographer. $keep", 'Для резюме'],
+                ['3D-мультгерой', 52, 2, 'Вы как герой современного мультфильма: большие глаза, мягкий свет, объёмная картинка.',
+                    "Turn the person into a stylized 3D animated movie character in the style of modern Pixar films: slightly enlarged eyes, smooth skin shading, detailed hair, warm cinematic lighting, colorful softly blurred background. Waist-up framing. $keep", 'Как в мультфильме'],
+                ['Новогодняя открытка', 9, 1, 'Вы в заснеженном городе с тёплыми огнями. Открытка для сторис или поздравления.',
+                    "Place the person into a cozy winter holiday scene: snowy evening street, warm glowing garlands and shop windows, soft falling snow, knitted scarf and warm coat, happy relaxed expression, cinematic shallow depth of field. Photorealistic. $keep", 'Для сторис'],
+                ['Неон-портрет', 27, 0, 'Ночной город, неоновая подсветка и резкие контрасты. Для постеров и обложек.',
+                    "Create a cinematic neon portrait of the person at night: rain-wet city street, magenta and cyan neon signs reflecting on the skin, strong rim light, moody contrast, shallow depth of field. Photorealistic. $keep", null],
+                ['Киберпанк', 63, 0, 'Футуристический образ: технологичная одежда, голограммы и мегаполис будущего.',
+                    "Reimagine the person as a cyberpunk character: futuristic techwear jacket, subtle glowing accents, holographic billboards and a dense futuristic megacity behind, teal and orange lighting, highly detailed digital art. $keep", null],
+                ['Королевский портрет', 74, 4, 'Классическая живопись маслом: бархат, золото и мягкий свет старых мастеров.',
+                    "Paint the person as a classical royal oil portrait in the style of the old masters: rich velvet and gold-embroidered clothing, dark warm background, soft Rembrandt lighting, visible brush strokes, museum quality. $keep", 'Как в музее'],
+                ['Ретро-плёнка 90-х', 85, 1, 'Тёплый плёночный кадр: зерно, вспышка и атмосфера девяностых.',
+                    "Restyle the photo as an authentic 1990s film snapshot of the person: warm faded colors, visible film grain, direct on-camera flash, slightly soft focus, period-appropriate casual clothing and interior. Photorealistic. $keep", null],
+                ['Космонавт', 96, 3, 'Вы в скафандре на фоне Земли и звёзд. Эффектный кадр для аватарки.',
+                    "Portray the person as an astronaut: detailed white space suit, helmet with an open clear visor showing the face, planet Earth and stars in the background, realistic rim light from the sun, cinematic composition. Photorealistic. $keep", null],
+                ['Акварельный питомец', 33, 2, 'Ваш питомец в мягкой акварели на светлом фоне. Хорошо смотрится в альбоме.',
+                    'Paint the animal from the attached photo as a delicate watercolor illustration: soft washes, visible paper texture, light airy background, gentle color bleeding around the edges. Keep the animal recognizable: same breed, coat color, markings and pose. No text, no watermarks.', 'Фото питомца'],
+            ];
+            foreach ($sets as $i => [$name, $seed, $pal, $desc, $prompt, $hint]) {
+                Photoset::create([
+                    'name' => $name, 'prompt' => $prompt, 'is_trending' => $hint !== null, 'sort' => $i,
+                    'kind' => 'photo', 'seed' => $seed, 'palette' => $pal, 'description' => $desc, 'trend_hint' => $hint, 'is_active' => true,
+                ]);
+            }
         }
-        AiModel::where('kind', 'tool')->whereNull('edited_at')->whereNotIn('slug', array_keys(config('neurogpt.tools')))->update(['is_active' => false]);
-
-        // ---- photosets: a ready idea applied to the user's own photo ----
-        $keep = 'Use the attached photo as the only reference for the person. Keep the face fully recognizable: same facial features, face shape, skin tone, eye color, hair color and hairstyle, same apparent age and gender. One person in the frame unless the photo shows several. No text, no watermarks, no extra limbs or fingers.';
-        $sets = [
-            ['Аниме-аватар', 3, 3, 'Ваш портрет в стиле аниме: мягкий свет, пастельные тона и аккуратные контуры. Подойдёт для аватарки.',
-                "Redraw the person as a high-quality anime character portrait: clean line art, cel shading, large expressive eyes, soft pastel palette, gentle rim light, simple dreamy background with bokeh. Head-and-shoulders framing. $keep", 'Из вашего селфи'],
-            ['Деловой портрет', 41, 4, 'Студийное фото в деловом стиле: для резюме, сайта и соцсетей.',
-                "Create a professional corporate headshot of the person: tailored dark blazer, soft diffused studio lighting, neutral gray gradient background, shoulders-up framing, sharp focus on the eyes, natural skin texture, confident friendly expression. Photorealistic, like a photo by a professional photographer. $keep", 'Для резюме'],
-            ['3D-мультгерой', 52, 2, 'Вы как герой современного мультфильма: большие глаза, мягкий свет, объёмная картинка.',
-                "Turn the person into a stylized 3D animated movie character in the style of modern Pixar films: slightly enlarged eyes, smooth skin shading, detailed hair, warm cinematic lighting, colorful softly blurred background. Waist-up framing. $keep", 'Как в мультфильме'],
-            ['Новогодняя открытка', 9, 1, 'Вы в заснеженном городе с тёплыми огнями. Открытка для сторис или поздравления.',
-                "Place the person into a cozy winter holiday scene: snowy evening street, warm glowing garlands and shop windows, soft falling snow, knitted scarf and warm coat, happy relaxed expression, cinematic shallow depth of field. Photorealistic. $keep", 'Для сторис'],
-            ['Неон-портрет', 27, 0, 'Ночной город, неоновая подсветка и резкие контрасты. Для постеров и обложек.',
-                "Create a cinematic neon portrait of the person at night: rain-wet city street, magenta and cyan neon signs reflecting on the skin, strong rim light, moody contrast, shallow depth of field. Photorealistic. $keep", null],
-            ['Киберпанк', 63, 0, 'Футуристический образ: технологичная одежда, голограммы и мегаполис будущего.',
-                "Reimagine the person as a cyberpunk character: futuristic techwear jacket, subtle glowing accents, holographic billboards and a dense futuristic megacity behind, teal and orange lighting, highly detailed digital art. $keep", null],
-            ['Королевский портрет', 74, 4, 'Классическая живопись маслом: бархат, золото и мягкий свет старых мастеров.',
-                "Paint the person as a classical royal oil portrait in the style of the old masters: rich velvet and gold-embroidered clothing, dark warm background, soft Rembrandt lighting, visible brush strokes, museum quality. $keep", 'Как в музее'],
-            ['Ретро-плёнка 90-х', 85, 1, 'Тёплый плёночный кадр: зерно, вспышка и атмосфера девяностых.',
-                "Restyle the photo as an authentic 1990s film snapshot of the person: warm faded colors, visible film grain, direct on-camera flash, slightly soft focus, period-appropriate casual clothing and interior. Photorealistic. $keep", null],
-            ['Космонавт', 96, 3, 'Вы в скафандре на фоне Земли и звёзд. Эффектный кадр для аватарки.',
-                "Portray the person as an astronaut: detailed white space suit, helmet with an open clear visor showing the face, planet Earth and stars in the background, realistic rim light from the sun, cinematic composition. Photorealistic. $keep", null],
-            ['Акварельный питомец', 33, 2, 'Ваш питомец в мягкой акварели на светлом фоне. Хорошо смотрится в альбоме.',
-                'Paint the animal from the attached photo as a delicate watercolor illustration: soft washes, visible paper texture, light airy background, gentle color bleeding around the edges. Keep the animal recognizable: same breed, coat color, markings and pose. No text, no watermarks.', 'Фото питомца'],
-        ];
-        foreach ($sets as $i => [$name, $seed, $pal, $desc, $prompt, $hint]) {
-            $this->sync(Photoset::class, ['name' => $name], [
-                'seed' => $seed, 'palette' => $pal, 'description' => $desc, 'prompt' => $prompt,
-                'is_trending' => $hint !== null, 'trend_hint' => $hint, 'sort' => $i, 'is_active' => true,
-            ], "photoset:$name");
-        }
-        Photoset::whereNotIn('name', array_column($sets, 0))->whereNull('edited_at')->whereNull('prompt_id')->whereNull('cover_url')->update(['is_active' => false]);
-
-        // ---- news cards on the home screen ----
-        $news = [
-            ['Видео из текста и фото', 'Veo 3.1, Kling 3.0 и Seedance уже здесь', 'rocket', 'ember', 'video'],
-            ['Позовите друга', 'Обоим по '.config('neurogpt.bonus.referral').' токенов', 'gift', 'gold', 'invite'],
-            ['1 500 токенов выгоднее', 'Скидка 20% на большой пакет', 'moneybag', 'ink', 'topup'],
-        ];
-        foreach ($news as $i => [$title, $sub, $stk, $style, $action]) {
-            $this->sync(News::class, ['title' => $title], ['subtitle' => $sub, 'sticker' => $stk, 'style' => $style, 'action' => $action, 'sort' => $i, 'is_active' => true], "news:$title");
-        }
-        News::whereNotIn('title', array_column($news, 0))->whereNull('edited_at')->update(['is_active' => false]);
-
-        if ($emptyBot) {
-            $this->fillEmptyBotCatalog();
-        }
-        app(BotSync::class)->pullCatalog();
     }
 
-    /** A fresh local database: the config models go to the bot table `models` too, already linked. */
-    private function fillEmptyBotCatalog(): void
+    private function model(string $kind, string $slug, ?string $remote, array $attrs): void
     {
-        $rows = AiModel::whereIn('kind', ['text', 'image', 'video'])->whereNull('bot_model_id')->where('is_active', true)->orderBy('kind')->orderBy('sort')->get();
-        foreach ($rows as $m) {
-            $bot = BotModel::create([
-                'type' => BotModel::typeOf($m->kind), 'can_image' => $m->kind !== 'text', 'price' => $m->price,
-                'name' => Str::limit((string) ($m->provider_model ?: $m->slug), 100, ''), 'text_name' => Str::limit($m->name, 100, ''),
-                'tag' => $m->slug, 'only_sub' => BotModel::onlySubFor($m->min_plan), 'params' => (object) [],
-            ]);
-            $m->forceFill(['bot_model_id' => $bot->id])->saveQuietly();
-        }
+        AiModel::create(['kind' => $kind, 'slug' => $slug, 'bot_name' => (string) ($remote ?: $slug), 'can_image' => $kind !== 'text'] + $attrs);
     }
 }

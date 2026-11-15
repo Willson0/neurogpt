@@ -23,6 +23,7 @@ class Settings
         'stars' => true,
         'styles' => false,
         'tools' => false,
+        'tool_engines' => false,
         'theme' => false,
         'upload_max_kb' => false,
         'telegram.support_url' => false,

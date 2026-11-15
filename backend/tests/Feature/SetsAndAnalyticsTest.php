@@ -3,8 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\AiModel;
-use App\Models\Bot\BotModel;
-use App\Models\Bot\BotPrompt;
 use App\Models\Event;
 use App\Models\Generation;
 use App\Models\Photoset;
@@ -47,7 +45,7 @@ class SetsAndAnalyticsTest extends TestCase
 
         // a video set runs as a video, the photo is optional (it becomes the first frame)
         $this->user(5, 1000);
-        $video = AiModel::active()->where('kind', 'video')->orderBy('sort')->firstOrFail();
+        $video = AiModel::active()->ofKind('video')->firstOrFail();
         $g = $this->as(5)->postJson('/api/generations', ['kind' => 'video', 'photoset_id' => $id, 'model' => $video->slug])->assertCreated()->json('data.0');
         $this->assertSame('video', $g['kind']);
         $row = Generation::findOrFail($g['id']);
@@ -75,13 +73,14 @@ class SetsAndAnalyticsTest extends TestCase
 
     public function test_bot_prompt_with_a_video_model_becomes_a_video_set(): void
     {
-        BotModel::create(['type' => 'video', 'price' => 50, 'name' => 'veo3', 'text_name' => 'Veo 3', 'tag' => '', 'params' => (object) []]);
-        $p = BotPrompt::create(['name' => 'Танец', 'prompt' => 'The person dances.', 'model' => 'veo3', 'trend' => false, 'position' => 3]);
-        $q = BotPrompt::create(['name' => 'Аниме', 'prompt' => 'Anime style.', 'trend' => false, 'position' => 4]);
+        AiModel::create(['kind' => 'video', 'price' => 50, 'bot_name' => 'veo3', 'name' => 'Veo 3']);
+        $p = DB::table('prompts')->insertGetId(['name' => 'Танец', 'prompt' => 'The person dances.', 'model' => 'veo3', 'trend' => false, 'position' => 3]);
+        $q = DB::table('prompts')->insertGetId(['name' => 'Аниме', 'prompt' => 'Anime style.', 'trend' => false, 'position' => 4]);
         app(BotSync::class)->pullCatalog();
 
-        $this->assertSame('video', Photoset::where('prompt_id', $p->id)->value('kind'));
-        $this->assertSame('photo', Photoset::where('prompt_id', $q->id)->value('kind'));
+        $this->assertSame('video', Photoset::find($p)->kind);
+        $this->assertSame('photo', Photoset::find($q)->kind);
+        $this->assertSame([$p], Photoset::ofKind('video')->whereIn('id', [$p, $q])->pluck('id')->all());
     }
 
     public function test_button_presses_are_stored_and_counted(): void
@@ -134,31 +133,30 @@ class SetsAndAnalyticsTest extends TestCase
         $this->as(7)->getJson('/api/admin/analytics')->assertStatus(403);
     }
 
-    public function test_models_sync_with_the_bot_table_both_ways(): void
+    public function test_models_are_the_bot_table_both_ways(): void
     {
-        $bot = BotModel::create(['type' => 'text', 'price' => 3, 'name' => 'gpt-5-mini', 'text_name' => 'GPT-5 mini', 'tag' => '', 'params' => (object) []]);
+        $botId = DB::table('models')->insertGetId(['type' => 'text', 'can_image' => false, 'price' => 3, 'name' => 'gpt-5-mini', 'text_name' => 'GPT-5 mini',
+            'tag' => '', 'only_sub' => false, 'params' => '{}', 'created_at' => now(), 'modified_at' => now()]);
         $r = $this->admin()->postJson('/api/admin/models/sync')->assertOk();
         $this->assertSame(1, $r->json('data.models'));
-        $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
-        $this->assertSame(['text', 'GPT-5 mini', 3], [$m->kind, $m->name, $m->price]);
+        $listed = collect($this->admin()->getJson('/api/admin/models')->json('data'))->firstWhere('id', $botId);
+        $this->assertSame(['text', 'GPT-5 mini', 3, 'gpt-5-mini', 'gpt-5-mini'], [$listed['kind'], $listed['name'], $listed['price'], $listed['slug'], $listed['bot_name']]);
 
         // a change made in the bot shows up, a second sync creates nothing new
-        DB::table('models')->where('id', $bot->id)->update(['price' => 4]);
+        DB::table('models')->where('id', $botId)->update(['price' => 4]);
         $this->assertSame(0, $this->admin()->postJson('/api/admin/models/sync')->json('data.models'));
-        $this->assertSame(4, AiModel::find($m->id)->price);
+        $this->assertSame(4, AiModel::find($botId)->price);
 
-        // a model created in the panel can be added to the bot table as a new row
+        // a model created in the panel is a new row of the bot table; without a provider id the link id goes to `name`
         $id = $this->admin()->postJson('/api/admin/models', ['kind' => 'image', 'slug' => 'nano', 'name' => 'Nano', 'price' => 12, 'min_plan' => 'plus',
-            'provider_model' => 'nano-banana', 'driver' => 'fake', 'create_in_bot' => true])->assertCreated()->json('data.bot_model_id');
-        $row = BotModel::findOrFail($id);
-        $this->assertSame(['photo', 'nano-banana', 'Nano', 12, true], [$row->type, $row->name, $row->text_name, $row->price, $row->only_sub]);
-        $this->admin()->postJson('/api/admin/models', ['kind' => 'song', 'slug' => 's2', 'name' => 'S', 'price' => 1, 'provider_model' => 'x', 'create_in_bot' => true])->assertStatus(422);
-        $this->admin()->postJson('/api/admin/models', ['kind' => 'image', 'slug' => 'n2', 'name' => 'S', 'price' => 1, 'create_in_bot' => true])->assertStatus(422);
+            'provider_model' => 'nano-banana', 'driver' => 'fake'])->assertCreated()->json('data.id');
+        $row = DB::table('models')->where('id', $id)->first();
+        $this->assertSame(['photo', 'nano-banana', 'Nano', 12, 1], [$row->type, $row->name, $row->text_name, (int) $row->price, (int) $row->only_sub]);
+        $song = $this->admin()->postJson('/api/admin/models', ['kind' => 'song', 'slug' => 's2', 'name' => 'S', 'price' => 1])->assertCreated()->json('data.id');
+        $this->assertSame(['song', 's2'], [DB::table('models')->where('id', $song)->value('type'), DB::table('models')->where('id', $song)->value('name')]);
 
-        // a bot row deleted by the bot owner is shown as missing
-        DB::table('models')->where('id', $bot->id)->delete();
-        $this->assertSame(1, $this->admin()->postJson('/api/admin/models/sync')->json('data.missing'));
-        $listed = collect($this->admin()->getJson('/api/admin/models')->json('data'))->firstWhere('id', $m->id);
-        $this->assertTrue($listed['bot_missing']);
+        // a bot row deleted by the bot owner is simply gone from the catalog
+        DB::table('models')->where('id', $botId)->delete();
+        $this->assertNull(collect($this->admin()->getJson('/api/admin/models')->json('data'))->firstWhere('id', $botId));
     }
 }

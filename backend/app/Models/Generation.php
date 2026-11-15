@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Generation\Tools;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -42,6 +43,12 @@ class Generation extends Model
     public function model(): BelongsTo
     {
         return $this->belongsTo(AiModel::class, 'ai_model_id');
+    }
+
+    /** The model that runs it: the catalog row, or for a tool the tool's engine (tools have no row in `models`). */
+    public function runModel(): ?AiModel
+    {
+        return $this->kind === 'tool' ? Tools::model((string) $this->tool) : $this->model;
     }
 
     public function photoset(): BelongsTo

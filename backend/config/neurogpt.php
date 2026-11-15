@@ -258,6 +258,12 @@ return [
     ],
 
     /*
+     | How each tool runs, set in the admin panel (Инструменты): slug => [active, driver, provider_model, options].
+     | Empty = the default from the tool above (kie.ai when it has a kie model and KIE_API_KEY is set, else the image model).
+     */
+    'tool_engines' => [],
+
+    /*
      | Generation providers. A model row points to a driver by name.
      | openai     : any OpenAI-compatible API (images, text)
      | kie        : kie.ai jobs API (video, upscale, background removal, image-to-video)

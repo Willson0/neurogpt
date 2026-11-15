@@ -85,13 +85,13 @@ class AnalyticsController extends Controller
                     ->groupBy('kind', 'is_set')->orderByDesc('n')->get()
                     ->map(fn ($r) => ['key' => ((int) $r->is_set ? 'set_' : '').$r->kind, 'n' => (int) $r->n, 'tokens' => (int) $r->tokens]),
                 'by_status' => $gens()->selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status')->map(fn ($n) => (int) $n),
-                'models' => $this->top($gens()->join('wa_models', 'wa_models.id', '=', 'wa_generations.ai_model_id')
+                'models' => $this->top($gens()->whereNotNull('wa_generations.ai_model_id')
                     ->whereNull('wa_generations.photoset_id')->where('wa_generations.kind', '!=', 'tool')
-                    ->selectRaw('wa_models.id as id, wa_models.kind as kind, count(*) as n, sum(case when wa_generations.status = \'done\' then wa_generations.cost else 0 end) as tokens')
-                    ->groupBy('wa_models.id', 'wa_models.kind'), fn ($r) => $this->modelName((int) $r->id)),
-                'sets' => $this->top($gens()->join('wa_photosets', 'wa_photosets.id', '=', 'wa_generations.photoset_id')
-                    ->selectRaw('wa_photosets.id as id, wa_photosets.kind as kind, count(*) as n, sum(case when wa_generations.status = \'done\' then wa_generations.cost else 0 end) as tokens')
-                    ->groupBy('wa_photosets.id', 'wa_photosets.kind'), fn ($r) => $this->setName((int) $r->id)),
+                    ->selectRaw('wa_generations.ai_model_id as id, wa_generations.kind as kind, count(*) as n, sum(case when wa_generations.status = \'done\' then wa_generations.cost else 0 end) as tokens')
+                    ->groupBy('wa_generations.ai_model_id', 'wa_generations.kind'), fn ($r) => $this->modelName((int) $r->id)),
+                'sets' => $this->top($gens()->whereNotNull('wa_generations.photoset_id')
+                    ->selectRaw('wa_generations.photoset_id as id, case when wa_generations.kind = \'video\' then \'video\' else \'photo\' end as kind, count(*) as n, sum(case when wa_generations.status = \'done\' then wa_generations.cost else 0 end) as tokens')
+                    ->groupBy('wa_generations.photoset_id', 'wa_generations.kind'), fn ($r) => $this->setName((int) $r->id)),
                 'tools' => $this->top($gens()->where('kind', 'tool')
                     ->selectRaw('tool as id, count(*) as n, sum(case when status = \'done\' then cost else 0 end) as tokens')
                     ->groupBy('tool'), fn ($r) => (string) (config("neurogpt.tools.{$r->id}.name") ?? $r->id)),

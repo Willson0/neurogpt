@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\GenerationResource;
 use App\Http\Resources\UserResource;
 use App\Models\AiModel;
+use App\Services\Generation\Tools;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Payments\PaymentService;
@@ -21,8 +22,8 @@ class BootstrapController extends Controller
         $methods = PaymentService::methods();
         $songs = (bool) config('neurogpt.features.songs');
 
-        $models = AiModel::active()->whereIn('kind', $songs ? ['image', 'video', 'song'] : ['image', 'video'])->get();
-        $activeTools = AiModel::active()->where('kind', 'tool')->pluck('slug')->all();
+        $models = AiModel::active()->ofKinds($songs ? ['image', 'video', 'song'] : ['image', 'video'])->get();
+        $activeTools = Tools::activeSlugs();
 
         return response()->json([
             'user' => new UserResource($user),

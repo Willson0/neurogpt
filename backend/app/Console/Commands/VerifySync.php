@@ -106,11 +106,14 @@ class VerifySync extends Command
             ->whereNotNull($col)->whereNotExists(fn ($q) => $q->from($target)->whereColumn("$target.$targetCol", "$table.$col"))->count();
 
         foreach ([
-            ['wa_models', 'bot_model_id', 'models', 'catalog models linked to a deleted bot model (they fall back to their own copy)'],
-            ['wa_photosets', 'prompt_id', 'prompts', 'photosets linked to a deleted bot prompt'],
+            ['wa_model_meta', 'model_id', 'models', 'app settings of models deleted from the bot table (harmless, ignored)'],
+            ['wa_photoset_meta', 'prompt_id', 'prompts', 'app settings of prompts deleted from the bot table (harmless, ignored)'],
         ] as [$t, $c, $target, $label]) {
             ($n = $orphans($t, $c, $target)) ? $this->warn2("$n $label") : $this->ok("$t.$c → $target");
         }
+        $noMeta = DB::table('models')->whereNotExists(fn ($q) => $q->from('wa_model_meta')->whereColumn('wa_model_meta.model_id', 'models.id'))->count()
+            + DB::table('prompts')->whereNotExists(fn ($q) => $q->from('wa_photoset_meta')->whereColumn('wa_photoset_meta.prompt_id', 'prompts.id'))->count();
+        $noMeta ? $this->warn2("$noMeta bot models / prompts have no app settings yet (run neurogpt:sync-bot)") : $this->ok('every bot model and prompt has its app settings');
         foreach ([
             ['wa_user_profiles', 'user_id', 'profiles of people missing in users'],
             ['wa_generations', 'user_id', 'generations of people missing in users'],
@@ -119,9 +122,6 @@ class VerifySync extends Command
             ($n = $orphans($t, $c, 'users')) ? $this->warn2("$n $label (deleted by the bot?)") : $this->ok("$t.$c → users");
         }
 
-        // linked catalog rows: local copy equals the bot value (it is refreshed by neurogpt:sync-bot)
-        $stale = DB::table('wa_models')->join('models', 'models.id', '=', 'wa_models.bot_model_id')->whereColumn('wa_models.price', '!=', 'models.price')->count();
-        $stale ? $this->warn2("$stale linked models have an old local price copy (the bot price is used anyway; run neurogpt:sync-bot)") : $this->ok('linked model prices are in sync');
 
         // payments: one bot row per app payment, with the same state
         $lost = $orphans('wa_payment_details', 'payment_id', 'payments');
@@ -182,7 +182,7 @@ class VerifySync extends Command
         }
 
         $tables = [
-            'users' => 'users', 'ai_models' => 'wa_models', 'photosets' => 'wa_photosets', 'news' => 'wa_news', 'payments' => 'payments',
+            'users' => 'users', 'ai_models' => 'models', 'photosets' => 'prompts', 'news' => 'wa_news', 'payments' => 'payments',
             'generations' => 'wa_generations', 'chats' => 'wa_chats', 'chat_messages' => 'wa_chat_messages', 'transactions' => 'wa_transactions',
         ];
         foreach ($tables as $src => $dst) {

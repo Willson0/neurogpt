@@ -43,22 +43,22 @@ class GenerationRunner
         $g = Generation::with(['model', 'user', 'photoset'])->findOrFail($id);
 
         try {
-            if (! $g->model) {
+            if (! $model = $g->runModel()) {
                 throw new ProviderUnavailable('The model was removed');
             }
             $g->finalPrompt = $this->prompts->for($g);
-            $provider = $this->providers->for($g->model);
+            $provider = $this->providers->for($model);
             $inputPath = $g->input_path ? Storage::disk('local')->path($g->input_path) : null;
 
             if ($provider instanceof AsyncProvider) {
-                $taskId = $provider->submit($g, $g->model, $inputPath);
+                $taskId = $provider->submit($g, $model, $inputPath);
                 $g->update(['provider_task_id' => $taskId]);
                 PollGeneration::dispatch($g->id)->onQueue($queue)->delay(now()->addSeconds(6));
 
                 return;
             }
 
-            $result = $provider->media($g, $g->model, $inputPath);
+            $result = $provider->media($g, $model, $inputPath);
         } catch (Throwable $e) {
             $this->fail($g, $e);
 
@@ -77,14 +77,14 @@ class GenerationRunner
         }
 
         try {
-            if (! $g->model) {
+            if (! $model = $g->runModel()) {
                 throw new ProviderUnavailable('The model was removed');
             }
-            $provider = $this->providers->for($g->model);
+            $provider = $this->providers->for($model);
             if (! $provider instanceof AsyncProvider) {
                 throw new ProviderUnavailable('The driver of this model was changed while the task was running');
             }
-            $result = $provider->fetch($g, $g->model);
+            $result = $provider->fetch($g, $model);
         } catch (Throwable $e) {
             $this->fail($g, $e);
 
@@ -210,7 +210,7 @@ class GenerationRunner
     {
         $id = $this->botSync->logQuery(
             (int) $g->user_id,
-            (string) ($g->model?->provider_model ?: $g->model?->name ?: $g->tool ?: $g->kind),
+            (string) ($g->runModel()?->provider_model ?: $g->runModel()?->name ?: $g->tool ?: $g->kind),
             $g->kind === 'tool' ? 'tool:'.$g->tool : ($g->photoset_id && $g->kind === 'image' ? 'photoset' : $g->kind),
             (int) $g->cost,
             (string) ($g->prompt ?: $g->title()),

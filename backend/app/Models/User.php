@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Models\Bot\BotModel;
 use App\Models\Bot\BotTime;
 use App\Models\Bot\TextRole;
 use Illuminate\Database\Eloquent\Builder;
@@ -136,7 +135,7 @@ class User extends Authenticatable
 
     public function textModel(): BelongsTo
     {
-        return $this->belongsTo(BotModel::class, 'text_model_id');
+        return $this->belongsTo(AiModel::class, 'text_model_id');
     }
 
     // ---------- the app's names for bot columns ----------

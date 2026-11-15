@@ -53,7 +53,7 @@ class SettingsController extends Controller
             }
             if (isset($clean['features'])) {
                 // The "Песня" tab needs its models switched on together with the feature.
-                AiModel::where('kind', 'song')->update(['is_active' => (bool) config('neurogpt.features.songs')]);
+                AiModel::ofKind('song')->get()->each(fn (AiModel $m) => $m->update(['is_active' => (bool) config('neurogpt.features.songs')]));
             }
         });
 

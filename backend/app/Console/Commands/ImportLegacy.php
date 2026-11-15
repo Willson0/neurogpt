@@ -174,37 +174,39 @@ class ImportLegacy extends Command
     private function catalog(): void
     {
         $this->info('catalog…');
+        // The catalog is the bot tables `models` / `prompts`: an old model or photoset is matched there (link id / name),
+        // otherwise added there. Tools are not models: their settings are the tool_engines setting.
         $app = ['hint', 'badge', 'is_fast', 'driver', 'provider_model', 'options', 'sort', 'is_active'];
         foreach ($this->old->table('ai_models')->orderBy('id')->get() as $r) {
-            if ($this->seen('ai_models', $r->id)) {
+            if ($this->seen('ai_models', $r->id) || ! AiModel::typeOf($r->kind)) {
                 continue;
             }
-            $row = AiModel::where('kind', $r->kind)->where('slug', $r->slug)->first();
+            $row = AiModel::ofKind($r->kind)->get()->first(fn (AiModel $m) => $m->slug === $r->slug);
             $values = collect((array) $r)->only($app)->all();
             $values['options'] = $r->options ? json_decode($r->options, true) : null;
             if (! $row) {
                 $row = AiModel::create($values + ['kind' => $r->kind, 'slug' => $r->slug, 'name' => $r->name, 'price' => $r->price,
+                    'bot_name' => $r->provider_model ?: $r->slug, 'can_image' => $r->kind !== 'text',
                     'min_plan' => $r->min_plan, 'edited_at' => $r->edited_at ?? null]);
             } elseif ($r->edited_at ?? null) {
-                // The admin had tuned this model. Linked to the bot: price, name and plan stay the bot's.
-                $row->forceFill($values + ($row->bot_model_id ? [] : ['name' => $r->name, 'price' => $r->price, 'min_plan' => $r->min_plan]) + ['edited_at' => $r->edited_at]);
-                $row->bot_model_id ? $row->saveQuietly() : $row->save();
+                // The admin had tuned this model: its app settings come over, name, price and plan stay the bot's.
+                $row->fill($values + ['edited_at' => $r->edited_at])->save();
             }
-            $this->remember('ai_models', (int) $r->id, 'wa_models', $row->id);
+            $this->remember('ai_models', (int) $r->id, 'models', $row->id);
         }
 
         foreach ($this->old->table('photosets')->orderBy('id')->get() as $r) {
             if ($this->seen('photosets', $r->id)) {
                 continue;
             }
-            $row = Photoset::where('name', $r->name)->whereNull('prompt_id')->first();
+            $row = Photoset::where('name', Str::limit((string) $r->name, 64, ''))->first();
             $values = collect((array) $r)->only(['description', 'prompt', 'seed', 'palette', 'is_trending', 'trend_hint', 'sort', 'is_active', 'cover_url'])->all();
             if (! $row) {
-                $row = Photoset::create($values + ['name' => $r->name, 'edited_at' => $r->edited_at ?? null]);
-            } elseif (($r->edited_at ?? null) || ($r->cover_url && ! $row->getRawOriginal('cover_url'))) {
-                $row->forceFill($values + ['edited_at' => $r->edited_at ?? now()])->save();
+                $row = Photoset::create($values + ['name' => $r->name, 'kind' => 'photo', 'edited_at' => $r->edited_at ?? null]);
+            } elseif (($r->edited_at ?? null) || ($r->cover_url && ! $row->ownCover())) {
+                $row->fill(collect($values)->except(['prompt', 'is_trending', 'sort'])->all() + ['edited_at' => $r->edited_at ?? now()])->save();
             }
-            $this->remember('photosets', (int) $r->id, 'wa_photosets', $row->id);
+            $this->remember('photosets', (int) $r->id, 'prompts', $row->id);
         }
 
         foreach ($this->old->table('news')->orderBy('id')->get() as $r) {

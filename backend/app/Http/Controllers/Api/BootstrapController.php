@@ -55,6 +55,8 @@ class BootstrapController extends Controller
             'theme' => config('neurogpt.theme'),
             'features' => ['songs' => $songs],
             'payments' => $methods,
+            // rubles per star: the app recounts a price in Stars after a promo discount
+            'stars_rate' => (float) config('neurogpt.stars.rub_per_star'),
             'limits' => ['upload_mb' => (int) floor(config('neurogpt.upload_max_kb') / 1024)],
             'recent' => GenerationResource::collection(
                 $user->generations()->with('photoset')->whereIn('status', ['done', 'queued', 'processing'])->latest('id')->limit(12)->get()

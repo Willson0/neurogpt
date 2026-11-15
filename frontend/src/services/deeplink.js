@@ -22,6 +22,7 @@ import { openAdmin } from '../stores/app'
  *   topup | topup-<tokens>                      buying tokens, optionally with a pack chosen
  *   plans | plans-<plus|pro> | plans-pro-year   subscriptions
  *   buy-<shop id>                               the purchase screen of that row of the bot table `shop` (pack or plan chosen)
+ *   pay-<shop id>                               the payment screen of that one row (also the plain address https://<app>/pay/<shop id>)
  *   result-<id>                                 one generation of this user
  *   admin | admin-<section>                     admin panel (admins only): dashboard, content, models, tools, showcase,
  *                                               pricing, settings, payments, theme, users
@@ -31,10 +32,19 @@ import { openAdmin } from '../stores/app'
 
 const PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
+/** The shop id of a payment link (https://<app>/pay/<id> or /pay?item=<id>), or null. */
+export function payLinkItem() {
+  const m = location.pathname.match(/^\/pay\/(\d{1,18})\/?$/)
+  if (m) return Number(m[1])
+  const q = new URLSearchParams(location.search).get('item')
+  return /^\/pay\/?$/.test(location.pathname) && /^\d{1,18}$/.test(q || '') ? Number(q) : null
+}
+
 /** The raw link the app was opened with, or null. initData wins: it is signed by Telegram. */
 export function readLink() {
   const q = new URLSearchParams(location.search)
-  const candidates = [tg.startParam, q.get('startapp'), q.get('tgWebAppStartParam'), q.get('screen')]
+  const item = payLinkItem()
+  const candidates = [tg.startParam, item ? `pay-${item}` : null, q.get('startapp'), q.get('tgWebAppStartParam'), q.get('screen')]
   const raw = candidates.find((v) => typeof v === 'string' && PATTERN.test(v))
   return raw || null
 }
@@ -151,6 +161,12 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
       }
       app.stack = ['home', 'topup']
       return true
+    }
+    case 'pay': {
+      home()
+      const id = Number(arg)
+      if (!id) return false
+      return app.openPay(id)
     }
     case 'plans': {
       home()

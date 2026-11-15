@@ -54,7 +54,7 @@ class AnalyticsController extends Controller
 
         $gens = fn () => $in(Generation::query(), 'wa_generations.created_at');
         $done = fn () => $gens()->where('status', 'done');
-        $pays = fn () => $in(Payment::query()->where('status', 'succeeded'));
+        $pays = fn () => $in(Payment::query()->state('succeeded'), 'payments.created_at');
         $tx = fn () => $in(Transaction::query());
         $events = fn (string $type) => $in(Event::query()->where('type', $type));
 
@@ -109,11 +109,13 @@ class AnalyticsController extends Controller
             'payments' => [
                 'count' => $pays()->count(),
                 'payers' => $pays()->distinct()->count('user_id'),
-                'rub' => round((float) $pays()->sum(DB::raw('coalesce(rub_amount, case when currency = \'RUB\' then amount else 0 end)')), 2),
-                'by_currency' => $pays()->selectRaw('currency, sum(amount) as total')->groupBy('currency')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
-                'by_purpose' => $pays()->selectRaw('purpose, count(*) as n')->groupBy('purpose')->pluck('n', 'purpose')->map(fn ($n) => (int) $n),
-                'tokens' => (int) $pays()->sum('tokens'),
-                'pending' => $in(Payment::query()->where('status', 'pending'))->count(),
+                'rub' => round((float) $pays()->sum('payments.rub_total'), 2),
+                'by_currency' => $pays()->selectRaw('total_valut as currency, sum(total) as total')->groupBy('total_valut')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
+                'by_purpose' => $pays()->join('shop', 'shop.id', '=', 'payments.item_id')
+                    ->selectRaw("case when shop.category = ? then 'plan' else 'topup' end as purpose, count(*) as n", [config('neurogpt.bot.shop.sub_category')])
+                    ->groupBy('purpose')->pluck('n', 'purpose')->map(fn ($n) => (int) $n),
+                'tokens' => (int) $pays()->join('shop', 'shop.id', '=', 'payments.item_id')->where('shop.category', config('neurogpt.bot.shop.tokens_category'))->sum('shop.amount'),
+                'pending' => $in(Payment::query()->state('pending'), 'payments.created_at')->count(),
             ],
             'clicks' => [
                 'total' => $events('click')->count(),
@@ -170,8 +172,8 @@ class AnalyticsController extends Controller
             'active' => $day(Event::query(), 'count(distinct user_id)'),
             'creators' => $day(Generation::query(), 'count(distinct user_id)'),
             'clicks' => $day(Event::query()->where('type', 'click')),
-            'payments' => $day(Payment::query()->where('status', 'succeeded')),
-            'rub' => $day(Payment::query()->where('status', 'succeeded'), "sum(coalesce(rub_amount, case when currency = 'RUB' then amount else 0 end))"),
+            'payments' => $day(Payment::query()->state('succeeded')),
+            'rub' => $day(Payment::query()->state('succeeded'), 'sum(rub_total)'),
             'chat' => $day(ChatMessage::query()->where('role', 'user')),
         ];
 

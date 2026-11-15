@@ -5,16 +5,17 @@ namespace App\Console\Commands;
 use App\Models\AiModel;
 use App\Models\Bot\BotTime;
 use App\Models\News;
-use App\Models\Payment;
 use App\Models\Photoset;
 use App\Models\User;
 use App\Models\UserProfile;
 use App\Services\Billing\Wallet;
 use App\Services\Bot\BotSync;
+use App\Services\Payments\Shop;
 use Illuminate\Console\Command;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -29,7 +30,7 @@ class ImportLegacy extends Command
 {
     protected $signature = 'neurogpt:import-legacy
         {--balance=add : add | skip — what to do with the old app balance}
-        {--no-mirror : do not write old paid payments into the bot table payments}
+        {--no-mirror : do not add old paid payments to users.paid_money}
         {--dry-run : only count what would be copied}';
 
     protected $description = 'Copy users, balances, payments, generations, chats and the catalog from the old web app database into the bot database';
@@ -240,28 +241,41 @@ class ImportLegacy extends Command
 
     // ---------- history ----------
 
+    /** Old payments go into the bot table `payments` (all of them, like new ones) with their details in wa_payment_details. */
     private function payments(BotSync $sync): void
     {
         $this->info('payments…');
         $rate = (float) config('neurogpt.stars.rub_per_star');
-        $this->old->table('payments')->orderBy('id')->chunk(500, function ($rows) use ($sync, $rate) {
+        $shop = app(Shop::class);
+        $this->old->table('payments')->orderBy('id')->chunk(500, function ($rows) use ($rate, $shop) {
             foreach ($rows as $r) {
                 if ($this->seen('payments', $r->id) || ! ($user = $this->mapped('users', $r->user_id))) {
                     continue;
                 }
-                $id = DB::table('wa_payments')->insertGetId([
-                    'user_id' => $user, 'provider' => $r->provider, 'provider_payment_id' => $r->provider_payment_id,
-                    'idempotence_key' => $r->idempotence_key, 'purpose' => $r->purpose, 'tokens' => $r->tokens, 'plan' => $r->plan,
-                    'period' => $r->period, 'amount' => $r->amount,
-                    'rub_amount' => $r->currency === 'XTR' ? round((float) $r->amount * $rate, 2) : $r->amount,
-                    'currency' => $r->currency, 'status' => $r->status, 'confirmation_url' => $r->confirmation_url,
-                    'cancel_reason' => $r->cancel_reason, 'credited_at' => $r->credited_at, 'raw' => $r->raw,
-                    'created_at' => $r->created_at, 'updated_at' => $r->updated_at,
-                ]);
-                $this->remember('payments', (int) $r->id, 'wa_payments', $id);
-                if (! $this->option('no-mirror') && $r->credited_at) {
-                    $sync->mirrorPayment(Payment::find($id));
-                }
+                $rub = $r->currency === 'XTR' ? round((float) $r->amount * $rate, 2) : (float) $r->amount;
+                $attrs = ['purpose' => $r->purpose, 'tokens' => (int) $r->tokens, 'plan' => $r->plan, 'period' => $r->period,
+                    'days' => $r->purpose === 'plan' ? ($r->period === 'year' ? 365 : 30) : null, 'price' => $rub];
+                $paid = $r->credited_at !== null;
+                $id = DB::transaction(function () use ($r, $user, $rub, $attrs, $paid, $shop) {
+                    $id = DB::table('payments')->insertGetId([
+                        'payment_id' => Str::limit((string) ($r->provider_payment_id ?: $r->idempotence_key), 128, ''),
+                        'is_autopayment' => false, 'was_bought' => $paid, 'is_proceed' => $r->status !== 'pending',
+                        'total' => (float) $r->amount, 'total_valut' => $r->currency ?: 'RUB', 'rub_total' => $rub,
+                        'item_id' => $shop->rowFor($attrs)->id, 'user_id' => $user, 'recipient_id' => $user,
+                        'created_at' => $r->created_at ?? now(), 'modified_at' => $r->updated_at ?? now(),
+                    ]);
+                    DB::table('wa_payment_details')->insert($attrs + [
+                        'payment_id' => $id, 'provider' => $r->provider ?: 'yookassa', 'idempotence_key' => $r->idempotence_key,
+                        'status' => $r->status, 'confirmation_url' => $r->confirmation_url, 'cancel_reason' => $r->cancel_reason,
+                        'credited_at' => $r->credited_at, 'raw' => $r->raw, 'created_at' => $r->created_at, 'updated_at' => $r->updated_at,
+                    ]);
+                    if ($paid && ! $this->option('no-mirror')) {
+                        DB::table('users')->where('id', $user)->increment('paid_money', $rub);
+                    }
+
+                    return $id;
+                });
+                $this->remember('payments', (int) $r->id, 'payments', $id);
             }
         });
     }

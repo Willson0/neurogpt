@@ -19,8 +19,14 @@ class PaymentResource extends JsonResource
             'tokens' => $p->tokens,
             'plan' => $p->plan,
             'period' => $p->period,
-            'amount' => (float) $p->amount,
+            'amount' => (float) $p->total,
             'currency' => $p->currency,
+            'item_id' => $p->item_id,
+            // rubles before and after a promo code
+            'price' => (float) ($p->details?->price ?? $p->rub_total),
+            'rub_amount' => (float) $p->rub_total,
+            'promo' => $p->details?->promo_code,
+            'discount' => (int) ($p->details?->discount ?? 0),
             // card: the YooKassa page; stars: the invoice link for WebApp.openInvoice
             'confirmation_url' => $p->status === 'pending' ? $p->confirmation_url : null,
         ];

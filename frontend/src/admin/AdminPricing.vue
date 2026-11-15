@@ -42,15 +42,7 @@
         <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
       </form>
 
-      <form class="adm-card glass" @submit.prevent="save(['stars'], 'Сохранено')">
-        <h3>Telegram Stars</h3>
-        <div class="adm-grid">
-          <label class="adm-check"><input v-model="v.stars.enabled" type="checkbox">Принимать оплату звёздами</label>
-          <label class="adm-f">Рублей за одну звезду<input v-model.number="v.stars.rub_per_star" type="number" min="0.1" step="0.01" required></label>
-        </div>
-        <p class="adm-note">Цена в звёздах считается из рублёвой: рубли делятся на курс и округляются вверх.</p>
-        <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
-      </form>
+      <p class="adm-note">Курс Telegram Stars, промокоды и ссылки на оплату товаров: раздел «Платежи и ЮKassa».</p>
     </template>
   </section>
 </template>

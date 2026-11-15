@@ -3,6 +3,8 @@
     <PlasmaCanvas :dim="!['home', 'create'].includes(app.current)" />
 
     <div v-if="app.booting && !app.user" class="boot" role="status"><Sticker name="art" :size="96" glow glow-color="--plasma-2" /></div>
+    <!-- A payment link opened outside Telegram: what is sold and a button that opens it in Telegram. -->
+    <PayPreview v-else-if="app.bootError && !app.user && unauthorized && payLinkId" :item-id="payLinkId" />
     <div v-else-if="app.bootError && !app.user" class="boot">
       <Sticker name="cry" :size="96" glow glow-color="--plasma-1" />
       <h3>{{ !unauthorized ? 'Нет соединения' : 'Откройте приложение из Telegram' }}</h3>
@@ -33,6 +35,7 @@
 <script>
 import { useApp } from './stores/app'
 import { tg } from './services/telegram'
+import { payLinkItem } from './services/deeplink'
 import PlasmaCanvas from './components/PlasmaCanvas.vue'
 import BottomBar from './components/BottomBar.vue'
 import Toast from './components/Toast.vue'
@@ -46,13 +49,15 @@ import ProfileView from './views/ProfileView.vue'
 import HistoryView from './views/HistoryView.vue'
 import TopupView from './views/TopupView.vue'
 import PlansView from './views/PlansView.vue'
+import PayView from './views/PayView.vue'
+import PayPreview from './components/PayPreview.vue'
 
 export default {
   name: 'App',
   components: {
     PlasmaCanvas, BottomBar, Toast, FxLayer, Sticker, SheetHost,
     home: HomeView, create: CreateView, gallery: GalleryView, profile: ProfileView,
-    history: HistoryView, topup: TopupView, plans: PlansView,
+    history: HistoryView, topup: TopupView, plans: PlansView, pay: PayView, PayPreview,
   },
 
   computed: {
@@ -60,6 +65,7 @@ export default {
     unauthorized() { return this.app.bootError?.status === 401 },
     browser() { return !tg.initData },
     nativeBack() { return tg.hasBackButton },
+    payLinkId() { return payLinkItem() },
   },
   watch: {
     'app.current'() { this.$nextTick(() => { if (this.$refs.scroll) this.$refs.scroll.scrollTop = 0 }) },

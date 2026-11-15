@@ -44,6 +44,9 @@
               <dt>Создан</dt><dd>{{ when(p.created_at) }}</dd>
               <template v-if="p.credited_at"><dt>Зачислен</dt><dd>{{ when(p.credited_at) }}</dd></template>
               <template v-if="p.provider_payment_id"><dt>{{ p.provider === 'stars' ? 'Id в Telegram' : 'Id в ЮKassa' }}</dt><dd>{{ p.provider_payment_id }}</dd></template>
+              <template v-if="p.shop_item_id"><dt>Товар в боте</dt><dd>shop #{{ p.shop_item_id }}</dd></template>
+              <template v-if="p.ref_amount"><dt>Рефоводу</dt><dd>{{ num(p.ref_amount) }} ₽ на реф. баланс (Telegram id {{ p.referrer_id }})<template v-if="p.ref_reverted">, списано после возврата {{ num(p.ref_reverted) }} ₽</template></dd></template>
+              <template v-if="p.refunded_amount"><dt>Возврат</dt><dd>{{ num(p.refunded_amount) }} ₽</dd></template>
               <template v-if="p.cancel_reason"><dt>Причина отмены</dt><dd>{{ reasons[p.cancel_reason] || p.cancel_reason }}</dd></template>
             </dl>
             <div class="adm-actions">
@@ -113,7 +116,7 @@ export default {
   data() {
     return {
       tabs: { list: 'Платежи', shop: 'Настройка ЮKassa' }, tab: 'list', periods: PERIODS,
-      statuses: { succeeded: 'оплачен', pending: 'ожидает', canceled: 'отменён' },
+      statuses: { succeeded: 'оплачен', pending: 'ожидает', canceled: 'отменён', refunded: 'возвращён' },
       reasons: { create_failed: 'не удалось создать платёж', amount_mismatch: 'сумма не совпала', expired: 'не оплачен вовремя', expired_on_confirmation: 'не оплачен вовремя', canceled_by_merchant: 'отменён магазином', insufficient_funds: 'недостаточно средств', card_expired: 'истёк срок карты', '3d_secure_failed': 'не пройдена проверка 3-D Secure', general_decline: 'отказ банка', fraud_suspected: 'подозрение на мошенничество', permission_revoked: 'покупатель отозвал разрешение' },
       taxSystems: { 1: 'ОСН', 2: 'УСН доходы', 3: 'УСН доходы минус расходы', 4: 'ЕНВД', 5: 'ЕСХН', 6: 'Патент' },
       vatCodes: { 1: 'Без НДС', 2: '0%', 3: '10%', 4: '20%', 5: '10/110', 6: '20/120', 7: '5%', 8: '7%', 9: '5/105', 10: '7/107', 11: '22%', 12: '22/122' },

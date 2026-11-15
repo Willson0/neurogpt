@@ -4,6 +4,7 @@ import { tg } from '../services/telegram'
 import { tok, plural, checkImage } from '../services/format'
 import { bus, confetti } from '../services/bus'
 import { theme } from '../services/theme'
+import { startTracking } from '../services/track'
 import { applyLink } from '../services/deeplink'
 
 const ROOT = ['home', 'gallery', 'profile']
@@ -50,6 +51,7 @@ export const useApp = defineStore('app', {
     modelSel: { image: 'auto', video: null, song: 'auto' },
     fmtIndex: 0,
     duration: 5,
+    setKind: 'photo', // gallery tab: photo | video
     songDuration: 30,
     count: 1,
     style: 'any',
@@ -110,6 +112,18 @@ export const useApp = defineStore('app', {
     pack: (s) => s.packs[s.packIndex] || { tokens: 0, price: 0 },
     isLocked: (s) => (m) => (PLAN_RANK[s.user?.plan] ?? 0) < (PLAN_RANK[m.min_plan] ?? 0),
     trends: (s) => s.photosets.filter((p) => p.trending),
+    /** Sets shown on the gallery tab: photo sets or video sets. */
+    setsShown: (s) => s.photosets.filter((p) => (p.kind || 'photo') === s.setKind),
+    hasVideoSets: (s) => s.photosets.some((p) => p.kind === 'video'),
+    /** The video model a video set runs on: the one chosen on the video tab, else the first. */
+    setVideoModel: (s) => (s.models.video || []).find((m) => m.id === s.modelSel.video) || (s.models.video || [])[0] || null,
+    /** What one run of a set costs: the image model price, or the shortest video of the video model. */
+    setPrice() {
+      return (ps) => {
+        if (ps?.kind === 'video') return this.setVideoModel?.durations?.[0]?.price ?? this.setVideoModel?.price ?? 0
+        return (this.models.image.find((m) => m.id === this.modelSel.image) || this.models.image[0] || {}).price || 0
+      }
+    },
   },
 
   actions: {
@@ -127,6 +141,7 @@ export const useApp = defineStore('app', {
         }
         // a bot button or a t.me link may ask for a given screen (?startapp=...): opened once, on the first start
         if (!this._linked) { this._linked = true; await applyLink(this) }
+        startTracking(this)
         this.refreshDailyBonus()
       } catch (e) {
         this.bootError = e instanceof ApiError ? e : new ApiError(0, { code: 'network' })
@@ -261,15 +276,21 @@ export const useApp = defineStore('app', {
     // ---------- generation ----------
     async start(extra = {}) {
       const photoset = extra.photoset || null
-      const kind = this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
+      const videoSet = photoset?.kind === 'video' ? this.setVideoModel : null
+      if (photoset?.kind === 'video' && !videoSet) return this.toast('Видео сейчас недоступно')
+      const kind = videoSet ? 'video' : this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
       if (kind === 'song' && this.songsOff) return this.toast('Песни скоро появятся', 'hourglass')
-      if (!photoset && this.isLocked(this.model)) { this.tier = this.model.min_plan === 'plus' ? 'plus' : 'pro'; this.toast('Модель доступна по подписке'); return this.push('plans') }
-      const cost = photoset ? this.models.image.find((m) => m.id === this.modelSel.image)?.price ?? this.model.price : this.cost
+      const locked = videoSet || (!photoset && this.model)
+      if (locked && this.isLocked(locked)) { this.tier = locked.min_plan === 'plus' ? 'plus' : 'pro'; this.toast('Модель доступна по подписке'); return this.push('plans') }
+      const cost = photoset ? this.setPrice(photoset) : this.cost
+      const setFormat = videoSet ? ((videoSet.formats || []).includes('9:16') ? '9:16' : (videoSet.formats || [])[0]) : null
       if (this.balance < cost) { tg.haptic('warning'); return this.openSheet('need', { lack: cost - this.balance }) }
       if (this.busy) return
       this.busy = true
       try {
-        const body = photoset
+        const body = videoSet
+          ? { kind: 'video', model: videoSet.id, photoset_id: photoset.id, prompt: extra.prompt || '', duration: videoSet.durations?.[0]?.seconds, format: setFormat }
+          : photoset
           ? { kind: 'image', model: this.modelSel.image, photoset_id: photoset.id, prompt: extra.prompt || '' }
           : {
             kind, model: this.model.id, prompt: this.prompt.trim(), format: kind === 'song' ? undefined : this.format.ratio,
@@ -281,7 +302,7 @@ export const useApp = defineStore('app', {
         const file = extra.file || (kind === 'image' || kind === 'video' ? this.refFile : null)
         const r = await api.createGeneration(body, file)
         this.refFile = null
-        this.beginGeneration(r, kind, { photoset: !!photoset })
+        this.beginGeneration(r, kind, { photoset: !!photoset, ...(videoSet ? { ar: setFormat === '16:9' ? 16 / 9 : setFormat === '1:1' ? 1 : 9 / 16 } : {}) })
       } catch (e) {
         this.handleActionError(e)
       } finally {
@@ -433,9 +454,11 @@ export const useApp = defineStore('app', {
       if (method === 'stars' && !tg.canInvoice) return this.toast('Оплата звёздами работает в Telegram')
       this.busy = true
       try {
-        const r = kind === 'topup'
-          ? await api.topup(this.pack.tokens, method)
-          : await api.buyPlan(this.tier, this.period, method)
+        // The bot's shop is the price list: the server gets only the shop item id and takes the price from it.
+        const itemId = kind === 'topup' ? this.pack.item_id : this.plans[this.tier]?.[`item_${this.period}`]
+        const r = itemId
+          ? await api.buyItem(itemId, method)
+          : kind === 'topup' ? await api.topup(this.pack.tokens, method) : await api.buyPlan(this.tier, this.period, method)
         this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, startedAt: Date.now() }
         if (method === 'stars') {
           this.busy = false

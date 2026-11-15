@@ -81,13 +81,24 @@ class BotSync
     }
 
     /**
-     * The `shop` row a purchase belongs to (payments.item_id is required). Looked up by category, item and amount;
+     * The `shop` row a purchase belongs to (payments.item_id is required): the row it was bought by, otherwise looked up by category, item and amount;
      * when the bot has no such row, a hidden one (active = false) is added so it does not appear in the bot menu.
      */
     public function shopItem(Payment $payment): ShopItem
     {
+        // Bought by shop id (the normal way now): that very row.
+        if ($payment->shop_item_id && ($row = ShopItem::find($payment->shop_item_id))) {
+            return $row;
+        }
+
         $cfg = config('neurogpt.bot.shop');
         if ($payment->purpose === 'topup') {
+            // the bot names its packs tokens_300, tokens_800...: a pack is found by category and amount
+            $found = ShopItem::where(['category' => $cfg['tokens_category'], 'amount' => (int) $payment->tokens])
+                ->orderByDesc('active')->orderBy('id')->first();
+            if ($found) {
+                return $found;
+            }
             $attrs = ['category' => $cfg['tokens_category'], 'item' => $cfg['tokens_item'], 'amount' => (int) $payment->tokens];
             $name = "{$payment->tokens} токенов";
         } else {
@@ -129,24 +140,29 @@ class BotSync
      * Brings bot models and prompts into the app catalog. New bot rows get an app row linked to them; existing links
      * refresh their local copy (used for sorting and as a fallback). Nothing is written to the bot tables here.
      *
-     * @return array{models:int, photosets:int}
+     * @return array{models:int, photosets:int, updated:int, missing:int}
      */
     public function pullCatalog(): array
     {
-        $created = ['models' => 0, 'photosets' => 0];
+        $created = ['models' => 0, 'photosets' => 0, 'updated' => 0, 'missing' => 0];
 
         $deleted = (array) config('neurogpt.deleted');
         DB::transaction(function () use (&$created, $deleted) {
             $linked = AiModel::whereNotNull('bot_model_id')->get()->keyBy('bot_model_id');
             foreach (BotModel::whereIn('type', array_keys(BotModel::KINDS))->orderBy('id')->get() as $bot) {
                 $kind = BotModel::KINDS[$bot->type];
-                $local = ['name' => $bot->text_name ?: $bot->name, 'price' => max(0, (int) $bot->price), 'min_plan' => $bot->minPlan()];
+                $local = ['name' => $bot->text_name ?: $bot->name, 'price' => max(0, (int) $bot->price),
+                    'min_plan' => $bot->minPlan($linked->get($bot->id)?->getRawOriginal('min_plan'))];
                 if (in_array("bot:model:{$bot->id}", $deleted, true)) {
                     continue; // the admin removed it from the app
                 }
                 if ($row = $linked->get($bot->id)) {
-                    $row->setRawAttributes(array_merge($row->getAttributes(), $local));
-                    $row->saveQuietly();
+                    $before = $row->getAttributes();
+                    $row->setRawAttributes(array_merge($before, $local));
+                    if ($row->isDirty()) {
+                        $row->saveQuietly();
+                        $created['updated']++;
+                    }
 
                     continue;
                 }
@@ -168,7 +184,12 @@ class BotSync
                 $created['models']++;
             }
 
+            // App rows linked to a bot model that is gone from the bot table: shown in the admin panel as "нет в боте".
+            $created['missing'] = AiModel::whereNotNull('bot_model_id')->whereNotIn('bot_model_id', BotModel::query()->select('id'))->count();
+
             $linkedSets = Photoset::whereNotNull('prompt_id')->get()->keyBy('prompt_id');
+            // A bot prompt whose recommended model (prompts.model) is a video model becomes a video set.
+            $videoModels = BotModel::where('type', 'video')->pluck('name')->map(fn ($n) => strtolower((string) $n))->all();
             foreach (BotPrompt::orderBy('position')->orderBy('id')->get() as $p) {
                 if (in_array("bot:prompt:{$p->id}", $deleted, true)) {
                     continue;
@@ -180,7 +201,8 @@ class BotSync
 
                     continue;
                 }
-                $row = new Photoset(['seed' => ($p->id * 37) % 100, 'palette' => $p->id % 5, 'is_active' => true]);
+                $kind = $p->model && in_array(strtolower($p->model), $videoModels, true) ? 'video' : 'photo';
+                $row = new Photoset(['kind' => $kind, 'seed' => ($p->id * 37) % 100, 'palette' => $p->id % 5, 'is_active' => true]);
                 $row->forceFill(['prompt_id' => $p->id] + $local)->save();
                 $created['photosets']++;
             }

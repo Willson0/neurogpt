@@ -21,7 +21,7 @@ class PaymentsController extends Controller
     public function index(Request $request)
     {
         $f = $request->validate([
-            'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled'])],
+            'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled', 'refunded'])],
             'provider' => ['nullable', Rule::in(['yookassa', 'stars'])],
             'purpose' => ['nullable', Rule::in(['topup', 'plan'])],
             'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'],
@@ -190,6 +190,10 @@ class PaymentsController extends Controller
             'user' => $p->user ? ['id' => $p->user->id, 'telegram_id' => $p->user->telegram_id, 'name' => $p->user->displayName(), 'username' => $p->user->username] : null,
             'created_at' => $p->created_at?->toIso8601String(),
             'credited_at' => $p->credited_at?->toIso8601String(),
+            'shop_item_id' => $p->shop_item_id,
+            // 20 % to the inviter (users.ref_balance) and what refunds took back
+            'referrer_id' => $p->referrer_id, 'ref_amount' => (int) $p->ref_amount, 'ref_reverted' => (int) $p->ref_reverted,
+            'refunded_amount' => (float) $p->refunded_amount,
         ];
     }
 }

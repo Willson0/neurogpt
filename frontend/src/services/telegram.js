@@ -16,6 +16,8 @@ export const tg = {
   get startParam() { return WebApp?.initDataUnsafe?.start_param || null },
   get platform() { return WebApp?.platform || 'web' },
   get hasMainButton() { return !!WebApp?.initData && at('6.1') },
+  /** Telegram draws its own back arrow in the header (clients 6.1+); elsewhere the app shows one itself. */
+  get hasBackButton() { return !!WebApp?.initData && at('6.1') },
   get hasSecondaryButton() { return !!WebApp?.initData && at('7.10') },
   get canInvoice() { return !!WebApp?.initData && at('6.1') },
 

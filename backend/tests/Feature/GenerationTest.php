@@ -160,18 +160,15 @@ class GenerationTest extends TestCase
         $this->assertSame(500, $user->refresh()->balance);
     }
 
-    public function test_referral_bonus_after_first_generation_with_a_cap(): void
+    public function test_generations_no_longer_pay_referral_tokens(): void
     {
-        config(['neurogpt.limits.referral_rewards' => 1]);
+        // The referral system is now 20 % of purchases into users.ref_balance (PaymentTest), not tokens for a first generation.
         $inviter = $this->user(100, 0);
-        foreach ([201, 202] as $id) {
-            $this->as($id, 'friend_100')->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
-            $this->as($id)->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
-        }
-        // Each friend: 50 welcome + 50 gift - 2 x 8. The inviter is paid for the first friend only.
-        $this->assertSame(84, User::find(201)->balance);
-        $this->assertSame(84, User::find(202)->balance);
-        $this->assertSame(50, $inviter->refresh()->balance);
+        $this->as(201, 'friend_100')->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
+        $this->as(201)->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
+        $this->assertSame(34, User::find(201)->balance); // 50 welcome - 2 x 8
+        $this->assertSame(0, $inviter->refresh()->balance);
+        $this->assertSame(0, (int) $inviter->ref_balance);
     }
 
     public function test_improve_prompt_is_free_and_capped(): void

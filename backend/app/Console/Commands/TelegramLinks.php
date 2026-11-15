@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\AiModel;
+use App\Services\Generation\Tools;
 use App\Models\Photoset;
 use App\Services\Payments\Shop;
 use App\Services\Telegram\Bot;
@@ -25,19 +26,19 @@ class TelegramLinks extends Command
             ['admin', 'Админка'], ['admin-payments', 'Админка: платежи'],
         ];
         foreach (['image' => 'Фото: ', 'video' => 'Видео: '] as $kind => $label) {
-            foreach (AiModel::active()->where('kind', $kind)->get() as $m) {
+            foreach (AiModel::active()->ofKind($kind)->get() as $m) {
                 $screens[] = ["{$kind}-{$m->slug}", $label.$m->name];
             }
         }
-        foreach (AiModel::active()->where('kind', 'tool')->get() as $t) {
-            $screens[] = ["tool-{$t->slug}", 'Инструмент: '.$t->name];
+        foreach (Tools::activeSlugs() as $slug) {
+            $screens[] = ["tool-{$slug}", 'Инструмент: '.config("neurogpt.tools.$slug.name")];
         }
         // the payment screen of every row of the bot's shop: pay-<shop.id> (buy-<shop.id> = the pack/plan screen with it chosen)
         $items = app(Shop::class)->tokenItems()->concat(app(Shop::class)->subItems());
         foreach ($items as $i) {
             $screens[] = ["pay-{$i->id}", "Оплата: {$i->text_name} ({$i->price} ₽)"];
         }
-        foreach (Photoset::where('is_active', true)->orderBy('sort')->get() as $p) {
+        foreach (Photoset::active()->get() as $p) {
             $screens[] = ["photoset-{$p->id}", 'Фотосет: '.$p->name];
         }
 

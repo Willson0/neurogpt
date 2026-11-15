@@ -3,12 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\AiModel;
-use App\Models\Bot\BotModel;
-use App\Models\Bot\BotPrompt;
 use App\Models\Bot\QueryLog;
 use App\Models\Bot\ShopItem;
 use App\Models\Bot\TextRole;
 use App\Models\Generation;
+use App\Models\ModelMeta;
 use App\Models\Payment;
 use App\Models\Photoset;
 use App\Models\User;
@@ -55,7 +54,7 @@ class BotDatabaseTest extends TestCase
         $this->assertEquals(1, $row['auto_continue']);
         $this->assertSame('nik4242', $row['username']);
         foreach (['text_model_id' => 'text', 'photo_model_id' => 'photo', 'video_model_id' => 'video'] as $col => $type) {
-            $this->assertSame($type, BotModel::find($row[$col])->type);
+            $this->assertSame($type, AiModel::find($row[$col])->type);
         }
         $this->assertSame('Ник', User::find(4242)->first_name); // the profile lives in wa_user_profiles
     }
@@ -126,8 +125,8 @@ class BotDatabaseTest extends TestCase
     public function test_chat_uses_the_bot_role_and_the_bot_text_model(): void
     {
         $role = TextRole::create(['name' => 'Пират', 'prompt' => 'Отвечай как пират']);
-        $smart = AiModel::where('kind', 'text')->where('slug', 'smart')->firstOrFail();
-        $this->botUser(781, ['text_role_id' => $role->id, 'text_model_id' => $smart->bot_model_id, 'tokens' => 20]);
+        $smart = AiModel::slugged('text', 'smart');
+        $this->botUser(781, ['text_role_id' => $role->id, 'text_model_id' => $smart->id, 'tokens' => 20]);
 
         $this->as(781)->postJson('/api/chats/messages', ['message' => 'привет'])->assertOk()
             ->assertJsonPath('message.cost', 3)->assertJsonPath('user.balance', 17);
@@ -197,56 +196,64 @@ class BotDatabaseTest extends TestCase
         $this->assertSame(1, ShopItem::count());
     }
 
-    public function test_bot_catalog_is_pulled_and_admin_edits_go_back_to_the_bot(): void
+    public function test_the_catalog_is_the_bot_tables_and_admin_edits_write_them(): void
     {
-        $bot = BotModel::create(['type' => 'photo', 'can_image' => true, 'price' => 25, 'name' => 'flux-pro', 'text_name' => 'Flux Pro',
-            'tag' => '', 'only_sub' => true, 'params' => (object) []]);
-        $prompt = BotPrompt::create(['name' => 'Барби', 'prompt' => 'Make a barbie doll', 'trend' => true, 'position' => 1]);
-        app(BotSync::class)->pullCatalog();
-
-        $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
-        // only_sub = any subscription: the app shows it as plus until an admin narrows it to pro
-        $this->assertSame(['image', 'Flux Pro', 25, 'plus', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
+        // the bot owner adds a model and a prompt in the bot: the app lists them at once, before any sync
+        $botId = DB::table('models')->insertGetId(['type' => 'photo', 'can_image' => true, 'price' => 25, 'name' => 'flux-pro', 'text_name' => 'Flux Pro',
+            'tag' => '', 'only_sub' => true, 'params' => '{}', 'created_at' => now(), 'modified_at' => now()]);
+        $promptId = DB::table('prompts')->insertGetId(['name' => 'Барби', 'prompt' => 'Make a barbie doll', 'trend' => true, 'position' => 1]);
         $boot = $this->as(784)->getJson('/api/bootstrap')->assertOk();
         $this->assertSame(25, collect($boot->json('models.image'))->firstWhere('name', 'Flux Pro')['price']);
-        $set = collect($boot->json('photosets'))->firstWhere('name', 'Барби');
-        $this->assertTrue($set['trending']);
+        $this->assertTrue(collect($boot->json('photosets'))->firstWhere('name', 'Барби')['trending']);
+
+        // the sync only gives them app settings (a link id); nothing is copied
+        app(BotSync::class)->pullCatalog();
+        $m = AiModel::find($botId);
+        // only_sub = any subscription: the app shows it as plus until an admin narrows it to pro
+        $this->assertSame(['image', 'Flux Pro', 'flux-pro', 25, 'plus', true], [$m->kind, $m->name, $m->slug, $m->price, $m->min_plan, $m->is_active]);
+        $this->assertFalse(Schema::hasTable('wa_models') && DB::table('wa_models')->exists(), 'the app has no catalog table of its own any more');
 
         // the bot owner changes the price in the bot: the app shows it at once
-        $bot->update(['price' => 30]);
-        $this->assertSame(30, AiModel::find($m->id)->price);
+        DB::table('models')->where('id', $botId)->update(['price' => 30]);
+        $this->assertSame(30, AiModel::find($botId)->price);
 
-        // an admin edit is written to the bot row
-        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'free', 'name' => 'Flux'])->assertOk();
-        $bot->refresh();
-        $this->assertSame([40, 'Flux', false], [$bot->price, $bot->text_name, $bot->only_sub]);
-        // pro is kept on the app side, the bot gets only_sub = true; a later catalog pull does not lose it
-        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['min_plan' => 'pro'])->assertOk();
+        // an admin edit is the bot row
+        $admin = ['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'];
+        $this->withHeaders($admin)->patchJson("/api/admin/models/$botId", ['price' => 40, 'min_plan' => 'free', 'name' => 'Flux', 'hint' => 'Быстро'])->assertOk();
+        $row = DB::table('models')->where('id', $botId)->first();
+        $this->assertSame([40, 'Flux', 0, 'flux-pro'], [(int) $row->price, $row->text_name, (int) $row->only_sub, $row->name]);
+        // pro is kept on the app side, the bot gets only_sub = true
+        $this->withHeaders($admin)->patchJson("/api/admin/models/$botId", ['min_plan' => 'pro'])->assertOk();
         app(BotSync::class)->pullCatalog();
-        $this->assertTrue($bot->refresh()->only_sub);
-        $this->assertSame('pro', AiModel::find($m->id)->min_plan);
+        $this->assertSame(1, (int) DB::table('models')->where('id', $botId)->value('only_sub'));
+        $this->assertSame(['pro', 'Быстро'], [AiModel::find($botId)->min_plan, AiModel::find($botId)->hint]);
 
-        $ps = Photoset::where('prompt_id', $prompt->id)->firstOrFail();
-        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/photosets/{$ps->id}", ['prompt' => 'Make a barbie', 'is_trending' => false])->assertOk();
-        $prompt->refresh();
-        $this->assertSame(['Make a barbie', false], [$prompt->prompt, $prompt->trend]);
+        $this->withHeaders($admin)->patchJson("/api/admin/photosets/$promptId", ['prompt' => 'Make a barbie', 'is_trending' => false, 'description' => 'Кукла'])->assertOk();
+        $prompt = DB::table('prompts')->where('id', $promptId)->first();
+        $this->assertSame(['Make a barbie', 0], [$prompt->prompt, (int) $prompt->trend]);
+        $this->assertSame('Кукла', Photoset::find($promptId)->description);
 
-        // pulling again does not duplicate anything
-        app(BotSync::class)->pullCatalog();
-        $this->assertSame(1, AiModel::where('bot_model_id', $bot->id)->count());
-        $this->assertSame(1, Photoset::where('prompt_id', $prompt->id)->count());
+        // a model and a photoset made in the admin panel are new rows of the bot tables
+        $newId = $this->withHeaders($admin)->postJson('/api/admin/models', ['kind' => 'image', 'slug' => 'nano', 'name' => 'Nano', 'price' => 12, 'provider_model' => 'nano-banana'])
+            ->assertCreated()->assertJsonPath('data.bot_model_id', fn ($v) => $v > $botId)->json('data.id');
+        $this->assertSame(['photo', 'nano-banana', 'Nano', 12], array_values((array) DB::table('models')->where('id', $newId)->first(['type', 'name', 'text_name', 'price'])));
+        $setId = $this->withHeaders($admin)->postJson('/api/admin/photosets', ['name' => 'Ретро', 'prompt' => 'Old photo.', 'is_trending' => true])->assertCreated()->json('data.id');
+        $this->assertSame(['Ретро', 'Old photo.', 1], [DB::table('prompts')->where('id', $setId)->value('name'), DB::table('prompts')->where('id', $setId)->value('prompt'), (int) DB::table('prompts')->where('id', $setId)->value('trend')]);
+
+        // syncing again creates nothing
+        $this->assertSame(['models' => 0, 'photosets' => 0], app(BotSync::class)->pullCatalog());
+        $this->assertSame(1, ModelMeta::where('model_id', $botId)->count());
     }
 
     public function test_seeder_never_overwrites_bot_values(): void
     {
-        $auto = AiModel::where('kind', 'image')->where('slug', 'auto')->firstOrFail();
-        BotModel::whereKey($auto->bot_model_id)->update(['price' => 99]);
+        $auto = AiModel::slugged('image', 'auto');
+        $rows = DB::table('models')->count();
+        DB::table('models')->where('id', $auto->id)->update(['price' => 99]);
         $this->seed();
-        $this->assertSame(99, (int) BotModel::find($auto->bot_model_id)->price);
+        $this->assertSame(99, (int) DB::table('models')->where('id', $auto->id)->value('price'));
         $this->assertSame(99, AiModel::find($auto->id)->price);
+        $this->assertSame($rows, DB::table('models')->count(), 'the seeder adds nothing to a bot table that has models');
     }
 
     public function test_referral_from_bot_column_and_app_reward_mark(): void
@@ -266,17 +273,20 @@ class BotDatabaseTest extends TestCase
         $this->assertTrue(Schema::hasTable('users'));
     }
 
-    public function test_removing_a_bot_model_from_the_app_keeps_it_in_the_bot(): void
+    public function test_deleting_a_model_deletes_the_bot_row_unless_bot_users_have_it(): void
     {
-        $bot = BotModel::create(['type' => 'photo', 'can_image' => true, 'price' => 5, 'name' => 'sdxl', 'text_name' => 'SDXL', 'tag' => '', 'params' => (object) []]);
-        app(BotSync::class)->pullCatalog();
-        $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
+        $admin = ['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'];
+        $smart = AiModel::slugged('text', 'smart');
+        $this->botUser(790, ['text_model_id' => $smart->id]);
+        // models.py would delete the user together with the model (on_delete CASCADE): refused
+        $this->withHeaders($admin)->deleteJson("/api/admin/models/{$smart->id}")->assertStatus(422);
+        $this->assertTrue(DB::table('models')->where('id', $smart->id)->exists());
 
-        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->deleteJson("/api/admin/models/{$m->id}")->assertOk();
+        $id = DB::table('models')->insertGetId(['type' => 'photo', 'can_image' => true, 'price' => 5, 'name' => 'sdxl', 'text_name' => 'SDXL', 'tag' => '',
+            'only_sub' => false, 'params' => '{}', 'created_at' => now(), 'modified_at' => now()]);
         app(BotSync::class)->pullCatalog();
-
-        $this->assertTrue(BotModel::whereKey($bot->id)->exists());
-        $this->assertFalse(AiModel::where('bot_model_id', $bot->id)->exists());
+        $this->withHeaders($admin)->deleteJson("/api/admin/models/$id")->assertOk();
+        $this->assertFalse(DB::table('models')->where('id', $id)->exists());
+        $this->assertFalse(ModelMeta::whereKey($id)->exists());
     }
 }

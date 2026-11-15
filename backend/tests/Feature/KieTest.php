@@ -23,8 +23,14 @@ class KieTest extends TestCase
     {
         parent::setUp();
         config(['neurogpt.providers.kie.api_key' => 'kie-test', 'neurogpt.providers.openai.api_key' => null]);
-        AiModel::whereIn('kind', ['video'])->update(['driver' => 'kie']);
-        AiModel::where('kind', 'tool')->whereIn('slug', ['upscale', 'remove_bg', 'animate'])->update(['driver' => 'kie']);
+        AiModel::ofKind('video')->get()->each(fn (AiModel $m) => $m->update(['driver' => 'kie']));
+        $engines = [];
+        foreach (['upscale', 'remove_bg', 'animate'] as $slug) {
+            $t = config("neurogpt.tools.$slug");
+            $engines[$slug] = ['driver' => 'kie', 'provider_model' => $t['provider_model'], 'active' => true,
+                'options' => array_intersect_key($t, array_flip(['family', 'tier', 'resolution', 'duration', 'factor']))];
+        }
+        config(['neurogpt.tool_engines' => $engines]);
     }
 
     private function fakeKie(array $record): void
@@ -144,7 +150,7 @@ class KieTest extends TestCase
     {
         $this->fakeKie(['state' => 'generating']);
         $user = $this->user(1, 60);
-        $model = AiModel::where('kind', 'video')->where('slug', 'veo-lite')->first();
+        $model = AiModel::slugged('video', 'veo-lite');
         $g = Generation::create(['user_id' => $user->id, 'kind' => 'video', 'ai_model_id' => $model->id, 'prompt' => 'x', 'cost' => 40, 'status' => 'processing', 'started_at' => now(), 'provider_task_id' => 'task_1', 'params' => ['duration' => 8]]);
         $this->setBalance($user, 20);
 
@@ -167,7 +173,7 @@ class KieTest extends TestCase
     public function test_reaper_refunds_stuck_generations(): void
     {
         $user = $this->user(1, 0);
-        $model = AiModel::where('kind', 'image')->first();
+        $model = AiModel::ofKind('image')->first();
         $g = Generation::create(['user_id' => $user->id, 'kind' => 'image', 'ai_model_id' => $model->id, 'prompt' => 'x', 'cost' => 8, 'status' => 'processing', 'started_at' => now()->subHours(2)]);
         $fresh = Generation::create(['user_id' => $user->id, 'kind' => 'image', 'ai_model_id' => $model->id, 'prompt' => 'x', 'cost' => 8, 'status' => 'processing', 'started_at' => now()]);
 

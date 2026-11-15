@@ -21,11 +21,11 @@
           <img v-else-if="isSet && it.cover_url" class="adm-thumb" :src="it.cover_url" alt="">
           <span v-else class="sq"><svg class="ic-s" aria-hidden="true"><use :href="tab === 'news' ? '#i-story' : tab === 'video' ? '#i-video' : '#i-image'" /></svg></span>
           <span class="t"><b>{{ it.name || it.title || 'Новая запись' }}</b><span>{{ isSet ? it.description : it.subtitle }}</span></span>
-          <span class="end"><span v-if="!it.is_active" class="adm-pill bad">выкл</span><span v-if="it.is_trending" class="adm-pill hot">тренд</span><span v-if="it.prompt_id" class="adm-pill" title="Связан с промптом бота">бот #{{ it.prompt_id }}</span></span>
+          <span class="end"><span v-if="!it.is_active" class="adm-pill bad">выкл</span><span v-if="it.is_trending" class="adm-pill hot">тренд</span><span v-if="it.prompt_id" class="adm-pill" :title="'Строка таблицы prompts бота, id ' + it.prompt_id">бот #{{ it.prompt_id }}</span></span>
         </button>
         <form v-if="edit === it" class="adm-edit" @submit.prevent="save">
           <div v-if="isSet" class="adm-grid">
-            <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="120"></label>
+            <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="64"></label>
             <label class="adm-f">Порядок<input v-model.number="f.sort" type="number" min="0"></label>
             <label class="adm-f">Цвета обложки без картинки<select v-model.number="f.palette"><option v-for="n in 5" :key="n" :value="n - 1">Палитра {{ n }}</option></select></label>
             <label class="adm-f">Узор обложки (число)<input v-model.number="f.seed" type="number" min="0" max="100000"></label>
@@ -91,8 +91,8 @@ export default {
   data: () => ({
     tabs: { photo: 'Фотосеты', video: 'Видеосеты', news: 'Новости' }, tab: 'photo', items: { photo: [], video: [], news: [] }, edit: null,
     notes: {
-      photo: 'Готовые идеи для фото пользователя. Промпт уходит модели вместе с фотографией. Картинка-пример показывает людям, что получится.',
-      video: 'Готовые идеи для видео. Промпт уходит видеомодели, фото пользователя по желанию становится первым кадром. Пример показывает людям, что получится.',
+      photo: 'Готовые идеи для фото пользователя. Промпт уходит модели вместе с фотографией. Картинка-пример показывает людям, что получится. Фотосеты хранятся в таблице prompts бота: название, промпт, тренд и порядок общие с ботом.',
+      video: 'Готовые идеи для видео. Промпт уходит видеомодели, фото пользователя по желанию становится первым кадром. Пример показывает людям, что получится. Видеосеты тоже строки таблицы prompts бота.',
       news: 'Карточки новостей на главном экране.',
     }, f: {}, confirming: false, gen: { id: null }, bulk: { on: false, done: 0, total: 0, stop: false },
     stickers: ['art', 'coin', 'crown', 'cry', 'fire', 'gem', 'gift', 'heart', 'hourglass', 'hundred', 'magic', 'money', 'moneybag', 'party', 'robot', 'rocket', 'sleep', 'sparkles', 'star', 'starstruck', 'thinking', 'wave'],
@@ -184,7 +184,7 @@ export default {
       this.app.toast(failed ? `Готово, не получилось: ${failed}. Можно повторить.` : 'Примеры готовы', failed ? 'cry' : null)
     },
     async save() {
-      const { id, prompt_id: _p, ...body } = this.f
+      const { id, prompt_id: _p, bot_model: _b, ...body } = this.f
       if (this.isSet) { body.cover_url = body.cover_url || null; body.trend_hint = body.is_trending ? body.trend_hint || null : null; body.kind = body.kind || this.tab }
       else body.ends_at = body.ends_at ? new Date(body.ends_at).toISOString() : null
       await this.run(async () => {

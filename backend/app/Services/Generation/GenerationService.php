@@ -79,7 +79,7 @@ class GenerationService
                 $rows = [];
                 for ($i = 0; $i < $count; $i++) {
                     $g = Generation::create([
-                        'user_id' => $user->id, 'kind' => $kind, 'ai_model_id' => $model->id,
+                        'user_id' => $user->id, 'kind' => $kind, 'ai_model_id' => $model->exists ? $model->id : null,
                         'photoset_id' => $photoset?->id, 'tool' => $tool, 'prompt' => $prompt,
                         'params' => $params, 'input_path' => $inputPath, 'cost' => $unit, 'status' => 'queued',
                     ]);
@@ -111,10 +111,12 @@ class GenerationService
     private function model(string $kind, ?string $tool, ?string $slug): AiModel
     {
         if ($kind === 'tool') {
-            return AiModel::active()->where('kind', 'tool')->where('slug', $tool)->firstOrFail();
+            abort_unless($tool && Tools::isActive($tool), 404, 'Unknown tool');
+
+            return Tools::model($tool);
         }
 
-        $list = AiModel::active()->where('kind', $kind)->get();
+        $list = AiModel::active()->ofKind($kind)->get();
 
         $found = $list->firstWhere('slug', $slug ?: 'auto');
         if (! $found && $slug && $slug !== 'auto') {

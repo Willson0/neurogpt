@@ -12,25 +12,25 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Pulls the bot catalog into the app: new bot models and prompts appear in the app, linked rows refresh their
- * local copy. Prompt examples stored as a Telegram file_id are downloaded once and become the photoset cover.
+ * The catalog is the bot tables `models` and `prompts`; new rows there get their app settings (link id, provider,
+ * photo or video set). Prompt examples stored as a Telegram file_id are downloaded once and become the cover in the app.
  * Runs every 5 minutes from the scheduler and on every start (db:seed).
  */
 class SyncBot extends Command
 {
     protected $signature = 'neurogpt:sync-bot';
 
-    protected $description = 'Bring new bot models and prompts into the app catalog';
+    protected $description = 'Give new bot models and prompts their app settings, copy Telegram covers';
 
     public function handle(BotSync $sync, Bot $bot): int
     {
         $created = $sync->pullCatalog();
-        $this->info("New from the bot: {$created['models']} models, {$created['photosets']} sets; refreshed models: {$created['updated']}; linked models missing in the bot: {$created['missing']}.");
+        $this->info("New in the bot tables: {$created['models']} models, {$created['photosets']} sets.");
 
         $covers = 0;
         if (config('neurogpt.telegram.bot_token')) {
-            foreach (Photoset::whereNotNull('prompt_id')->whereNull('cover_url')->get() as $set) {
-                $example = (string) $set->botPrompt?->photo_example;
+            foreach (Photoset::whereNotNull('photo_example')->get()->filter(fn (Photoset $s) => ! $s->ownCover()) as $set) {
+                $example = (string) $set->photo_example;
                 if ($example === '' || str_starts_with($example, 'http')) {
                     continue;
                 }
@@ -45,7 +45,7 @@ class SyncBot extends Command
                 }
                 $path = 'covers/'.Str::uuid().'.'.$image->extension;
                 Storage::disk('public')->put($path, $image->bytes);
-                $set->forceFill(['cover_url' => '/storage/'.$path])->saveQuietly();
+                $set->fill(['cover_url' => '/storage/'.$path])->save();
                 $covers++;
             }
         }

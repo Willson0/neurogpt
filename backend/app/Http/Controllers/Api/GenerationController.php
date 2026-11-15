@@ -49,7 +49,7 @@ class GenerationController extends Controller
             'kind' => ['required', Rule::in(['image', 'video', 'song', 'tool'])],
             'model' => ['nullable', 'string', 'max:32', 'regex:/^[a-z0-9_-]+$/'],
             'prompt' => ['nullable', 'string', 'max:4000'],
-            'photoset_id' => ['nullable', 'integer', 'exists:wa_photosets,id'],
+            'photoset_id' => ['nullable', 'integer', 'exists:prompts,id'],
             'tool' => ['required_if:kind,tool', 'nullable', Rule::in(array_keys(config('neurogpt.tools')))],
             'option' => ['nullable', 'string', 'max:32'],
             'format' => ['nullable', Rule::in(['1:1', '9:16', '16:9'])],

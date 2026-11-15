@@ -50,11 +50,11 @@ class AdminTest extends TestCase
 
     public function test_model_is_edited_created_deleted_and_survives_the_seeder(): void
     {
-        $model = AiModel::where('kind', 'image')->where('slug', 'detail')->firstOrFail();
+        $model = AiModel::slugged('image', 'detail');
         $this->admin()->patchJson("/api/admin/models/{$model->id}", ['name' => 'Супер', 'price' => 77, 'min_plan' => 'pro', 'badge' => 'Новая'])
             ->assertOk()->assertJsonPath('data.price', 77)->assertJsonPath('data.edited', true);
 
-        $video = AiModel::where('kind', 'video')->where('slug', 'kling')->firstOrFail();
+        $video = AiModel::slugged('video', 'kling');
         $this->admin()->patchJson("/api/admin/models/{$video->id}", ['options' => ['durations' => ['4' => 1, '12' => 2.5], 'formats' => ['16:9'], 'family' => 'kling']])
             ->assertOk()->assertJsonPath('data.options.durations.12', 2.5);
         $this->admin()->patchJson("/api/admin/models/{$video->id}", ['options' => ['durations' => ['0' => 1]]])->assertStatus(422);
@@ -62,14 +62,14 @@ class AdminTest extends TestCase
         $this->admin()->postJson('/api/admin/models', ['kind' => 'video', 'slug' => 'mine', 'name' => 'Моя', 'price' => 9, 'driver' => 'fake'])->assertCreated();
         $this->admin()->postJson('/api/admin/models', ['kind' => 'video', 'slug' => 'mine', 'name' => 'Моя', 'price' => 9])->assertStatus(422);
 
-        $quick = AiModel::where('kind', 'image')->where('slug', 'quick')->firstOrFail();
+        $quick = AiModel::slugged('image', 'quick');
         $this->admin()->deleteJson("/api/admin/models/{$quick->id}")->assertOk();
 
         $this->seed(DatabaseSeeder::class);
         $this->assertSame(77, $model->refresh()->price);
         $this->assertSame('Супер', $model->name);
-        $this->assertTrue(AiModel::where('kind', 'video')->where('slug', 'mine')->value('is_active') == true);
-        $this->assertFalse(AiModel::where('kind', 'image')->where('slug', 'quick')->exists());
+        $this->assertTrue(AiModel::slugged('video', 'mine')?->is_active == true);
+        $this->assertFalse((bool) AiModel::slugged('image', 'quick'));
 
         // the app sees the new price and the user is charged with it
         $boot = $this->admin()->getJson('/api/bootstrap')->assertOk();

@@ -96,13 +96,13 @@ class ChatController extends Controller
     /** The chosen text model; "auto" (or nothing) is the model the person picked in the bot, else "auto", else the first one. */
     private function model(User $user, ?string $slug): AiModel
     {
-        $q = AiModel::active()->where('kind', 'text');
+        $list = AiModel::active()->ofKind('text')->get();
         if ($slug && $slug !== 'auto') {
-            return (clone $q)->where('slug', $slug)->firstOrFail();
+            return $list->first(fn (AiModel $m) => $m->slug === $slug) ?? abort(404);
         }
 
-        return ($user->text_model_id ? (clone $q)->where('bot_model_id', $user->text_model_id)->first() : null)
-            ?? (clone $q)->where('slug', 'auto')->first()
-            ?? $q->firstOrFail();
+        return ($user->text_model_id ? $list->firstWhere('id', $user->text_model_id) : null)
+            ?? $list->first(fn (AiModel $m) => $m->slug === 'auto')
+            ?? $list->first() ?? abort(404);
     }
 }

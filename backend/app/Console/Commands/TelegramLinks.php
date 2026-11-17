@@ -56,6 +56,11 @@ class TelegramLinks extends Command
             $this->table(['shop.id', 'Товар', 'Ссылка'], $items->map(fn ($i) => [$i->id, $i->text_name, Bot::payLink($i->id)])->all());
         }
 
+        $this->newLine();
+        $this->line('Ответ ИИ на отдельной странице (Markdown, LaTeX), <id> = query_logs.id:');
+        $this->line('  web_app кнопка: '.str_replace('id=0', 'id=<id>', Bot::answerLink(0, false)));
+        $this->line('  url-кнопка:     '.rtrim((string) config('neurogpt.telegram.webapp_url'), '/').'/answer?id=<id>&sig=<первые 32 символа HMAC-SHA256("answer:<id>", токен бота)>');
+
         return self::SUCCESS;
     }
 }

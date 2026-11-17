@@ -165,9 +165,11 @@ class GenerationTest extends TestCase
     {
         // The referral system is now 20 % of purchases into users.ref_balance (PaymentTest), not tokens for a first generation.
         $inviter = $this->user(100, 0);
-        $this->as(201, 'friend_100')->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
+        $this->as(201, 'friend_100')->getJson('/api/me')->assertOk()->assertJsonPath('balance', 0); // nothing at start
+        $this->setBalance(User::find(201), 50);
         $this->as(201)->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
-        $this->assertSame(34, User::find(201)->balance); // 50 welcome - 2 x 8
+        $this->as(201)->postJson('/api/generations', ['kind' => 'image', 'prompt' => 'кот'])->assertCreated();
+        $this->assertSame(34, User::find(201)->balance); // 50 - 2 x 8
         $this->assertSame(0, $inviter->refresh()->balance);
         $this->assertSame(0, (int) $inviter->ref_balance);
     }

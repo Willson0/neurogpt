@@ -35,7 +35,8 @@
       <form class="adm-card glass" @submit.prevent="save(['bonus'], 'Бонусы сохранены')">
         <h3>Бонусы</h3>
         <div class="adm-grid">
-          <label class="adm-f">За регистрацию<input v-model.number="v.bonus.signup" type="number" min="0" required></label>
+          <label class="adm-f">Реферальные токены за первую покупку<input v-model.number="v.bonus.referral_tokens" type="number" min="0" required></label>
+          <label class="adm-f">Кому их начислять<select v-model="v.bonus.referral_tokens_to"><option value="friend">Приглашённому другу</option><option value="inviter">Пригласившему</option></select></label>
           <label class="adm-f">Ежедневный<input v-model.number="v.bonus.daily" type="number" min="0" required></label>
           <label class="adm-f">Рефоводу с покупок друга, %<input v-model.number="v.bonus.referral_percent" type="number" min="0" max="100" required></label>
         </div>

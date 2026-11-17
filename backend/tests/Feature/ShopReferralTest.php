@@ -105,7 +105,7 @@ class ShopReferralTest extends TestCase
         $this->assertSame(500, $buyer->balance);
         $this->assertTrue($buyer->ref_paid);
         $this->assertSame(49, (int) $inviter->refresh()->ref_balance, '20 % of 249 ₽, rounded down');
-        $this->assertSame(0, $inviter->balance, 'the commission is rubles on ref_balance, not tokens');
+        $this->assertSame(50, $inviter->balance, 'the commission is rubles on ref_balance; the tokens are the 50 referral tokens');
         $this->assertSame([100, 49], [Payment::find($id)->details->referrer_id, Payment::find($id)->details->ref_amount]);
         $bot = Payment::sole();
         $this->assertSame([3, 249.0, true], [(int) $bot->item_id, $bot->rub_total, $bot->was_bought]);
@@ -116,6 +116,7 @@ class ShopReferralTest extends TestCase
         $this->as(200)->postJson('/api/payments/item', ['item_id' => 5])->assertCreated();
         $this->hook('payment.succeeded', ['id' => 'yk_21'])->assertOk();
         $this->assertSame(49 + 129, (int) $inviter->refresh()->ref_balance);
+        $this->assertSame(50, $inviter->balance, 'the referral tokens come once, with the first purchase');
     }
 
     public function test_refund_takes_the_commission_back_once_and_in_proportion(): void

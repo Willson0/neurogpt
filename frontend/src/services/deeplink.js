@@ -24,6 +24,7 @@ import { openAdmin } from '../stores/app'
  *   buy-<shop id>                               the purchase screen of that row of the bot table `shop` (pack or plan chosen)
  *   pay-<shop id>                               the payment screen of that one row (also the plain address https://<app>/pay/<shop id>)
  *   result-<id>                                 one generation of this user
+ *   answer-<id>                                 an AI answer from the bot table query_logs on the answer page (/answer?id=<id>)
  *   admin | admin-<section>                     admin panel (admins only): dashboard, content, models, tools, showcase,
  *                                               pricing, settings, payments, theme, users
  * Referral values (friend_<id>, ref_<id>) are not screens: the app opens on the home screen and the server credits the invite.
@@ -194,6 +195,12 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
       }
     }
 
+    case 'answer': {
+      // an AI answer of the bot (query_logs id) on its own page with Markdown and LaTeX
+      if (!/^\d{1,18}$/.test(arg)) return false
+      location.href = `/answer?id=${arg}`
+      return true
+    }
     case 'admin': {
       if (!app.isAdmin) return false
       openAdmin(ADMIN_SECTIONS.includes(arg) ? arg : '')

@@ -103,8 +103,11 @@ return [
     ],
 
     'bonus' => [
-        'signup' => 50,
         'daily' => 5,
+        // Referral tokens: given at the first paid purchase of a person who came by an invite link (not at start).
+        'referral_tokens' => (int) env('REFERRAL_TOKENS', 50),
+        // who gets them: inviter (Nikita's choice, 2026-11-17) | friend (the invited buyer)
+        'referral_tokens_to' => env('REFERRAL_TOKENS_TO', 'inviter'),
         // Percent of every paid purchase of an invited person that goes to the inviter's users.ref_balance (rubles).
         // Taken back when the payment is refunded.
         'referral_percent' => (int) env('REFERRAL_PERCENT', 20),

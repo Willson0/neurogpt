@@ -25,3 +25,14 @@ export const checkImage = (file, maxMb = 10) => {
   if (file.size > maxMb * 1024 * 1024) return `Фото больше ${maxMb} МБ`
   return null
 }
+/**
+ * What a token pack gives, as the bot's shop row says in description ({"photo": 15, "video": 2, "emoji": "💫"}):
+ * "💫 15 изображений" instead of "500 токенов". A row without that JSON falls back to tokens.
+ */
+export const packHasCounts = (p) => p?.photo != null
+export const packPhotos = (p) => packHasCounts(p)
+  ? `${p.emoji ? p.emoji + ' ' : ''}${fmt(p.photo)} ${plural(p.photo, 'изображение', 'изображения', 'изображений')}`
+  : tok(p?.tokens || 0)
+/** "2 видео", or '' when the pack has no videos (then no plaque is shown). */
+export const packVideos = (p) => (p?.video > 0 ? `${fmt(p.video)} видео` : '')
+

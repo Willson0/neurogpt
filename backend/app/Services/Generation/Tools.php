@@ -3,14 +3,44 @@
 namespace App\Services\Generation;
 
 use App\Models\AiModel;
+use App\Models\Bot\BotConfig;
 use App\Models\ModelMeta;
 
 /**
  * Tools of the "Ещё" tab. They are not models of the catalog (the bot table `models` has no tools), so nothing about
- * them is kept in a model table: the text and price are the `tools` setting, how each one runs is `tool_engines`.
+ * them is kept in a model table: the text is the `tools` setting, how each one runs is `tool_engines`, and the PRICE
+ * is in the bot database, table `config`: a row "tools / <slug> / <tokens>" (neurogpt:sync-bot adds a missing row,
+ * the admin panel writes it). The `cost` of the setting is only the fallback when there is no such row.
  */
 class Tools
 {
+    /** Tokens one run of the tool costs: the bot table `config` first, then the setting. */
+    public static function cost(string $slug): int
+    {
+        return BotConfig::int(BotConfig::TOOLS, $slug) ?? (int) (config("neurogpt.tools.$slug.cost") ?? 0);
+    }
+
+    /** Writes the price into the bot table `config` (missing tools get a row with their current price). */
+    public static function putCost(string $slug, int $cost): void
+    {
+        BotConfig::put(BotConfig::TOOLS, $slug, (string) max(0, $cost));
+    }
+
+    /** Adds a `config` row for every tool that has none yet. @return int rows added */
+    public static function seedCosts(): int
+    {
+        $have = BotConfig::category(BotConfig::TOOLS);
+        $added = 0;
+        foreach (array_keys((array) config('neurogpt.tools')) as $slug) {
+            if (! array_key_exists($slug, $have)) {
+                self::putCost((string) $slug, (int) config("neurogpt.tools.$slug.cost"));
+                $added++;
+            }
+        }
+
+        return $added;
+    }
+
     /** @return array{active:bool, driver:string, provider_model:?string, options:?array} */
     public static function engine(string $slug): array
     {
@@ -54,7 +84,7 @@ class Tools
         }
         $e = self::engine($slug);
         $m = new AiModel;
-        $m->setRawAttributes(['type' => 'tool', 'name' => (string) $e['provider_model'], 'text_name' => (string) $t['name'], 'price' => (int) $t['cost']]);
+        $m->setRawAttributes(['type' => 'tool', 'name' => (string) $e['provider_model'], 'text_name' => (string) $t['name'], 'price' => self::cost($slug)]);
         $m->setRelation('meta', new ModelMeta([
             'slug' => $slug, 'hint' => $t['hint'] ?? null, 'driver' => $e['driver'], 'provider_model' => $e['provider_model'],
             'options' => $e['options'], 'is_active' => $e['active'],

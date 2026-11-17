@@ -14,6 +14,8 @@ const FORMATS = [
   { ratio: '16:9', ar: 1.7778, w: 18, h: 10 },
 ]
 const PLAN_RANK = { free: 0, plus: 1, pro: 2 }
+/** One run of a model: its price, the shortest video for a video model. */
+const unitPrice = (m) => (m ? (m.durations?.[0]?.price ?? m.price ?? 0) : 0)
 /** The direct link to the admin panel: https://<app>/admin (a page of its own, admin.html). */
 export const adminLink = () => /^\/admin(\.html)?$/.test(location.pathname.replace(/\/+$/, ''))
 /** Leaves the Mini App for the admin page, optionally on a section. Telegram keeps initData across the navigation. */
@@ -159,12 +161,23 @@ export const useApp = defineStore('app', {
     hasVideoSets: (s) => s.photosets.some((p) => p.kind === 'video'),
     /** The video model a video set runs on: the one chosen on the video tab, else the first. */
     setVideoModel: (s) => (s.models.video || []).find((m) => m.id === s.modelSel.video) || (s.models.video || [])[0] || null,
-    /** What one run of a set costs: the image model price, or the shortest video of the video model. */
-    setPrice() {
+    /**
+     * The model a set runs on, as the bot does it: the set's recommended model (prompts.model in the bot table) when
+     * it is open to the user and the balance covers it, otherwise the user's own model of that kind.
+     */
+    setModel() {
       return (ps) => {
-        if (ps?.kind === 'video') return this.setVideoModel?.durations?.[0]?.price ?? this.setVideoModel?.price ?? 0
-        return (this.models.image.find((m) => m.id === this.modelSel.image) || this.models.image[0] || {}).price || 0
+        const kind = ps?.kind === 'video' ? 'video' : 'image'
+        const list = this.models[kind] || []
+        const own = kind === 'video' ? this.setVideoModel : (list.find((m) => m.id === this.modelSel.image) || list[0] || null)
+        const rec = ps?.model ? list.find((m) => m.id === ps.model) : null
+        if (rec && !this.isLocked(rec) && this.balance >= unitPrice(rec)) return rec
+        return own || rec || null
       }
+    },
+    /** What one run of a set costs: the price of its model in the bot table (the shortest video for a video model). */
+    setPrice() {
+      return (ps) => unitPrice(this.setModel(ps))
     },
   },
 
@@ -319,11 +332,11 @@ export const useApp = defineStore('app', {
     // ---------- generation ----------
     async start(extra = {}) {
       const photoset = extra.photoset || null
-      const videoSet = photoset?.kind === 'video' ? this.setVideoModel : null
+      const videoSet = photoset?.kind === 'video' ? this.setModel(photoset) : null
       if (photoset?.kind === 'video' && !videoSet) return this.toast('Видео сейчас недоступно')
       const kind = videoSet ? 'video' : this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
       if (kind === 'song' && this.songsOff) return this.toast('Песни скоро появятся', 'hourglass')
-      const locked = videoSet || (!photoset && this.model)
+      const locked = videoSet || (photoset ? this.setModel(photoset) : this.model)
       if (locked && this.isLocked(locked)) { this.tier = locked.min_plan === 'plus' ? 'plus' : 'pro'; this.toast('Модель доступна по подписке'); return this.push('plans') }
       const cost = photoset ? this.setPrice(photoset) : this.cost
       const setFormat = videoSet ? ((videoSet.formats || []).includes('9:16') ? '9:16' : (videoSet.formats || [])[0]) : null
@@ -334,7 +347,7 @@ export const useApp = defineStore('app', {
         const body = videoSet
           ? { kind: 'video', model: videoSet.id, photoset_id: photoset.id, prompt: extra.prompt || '', duration: videoSet.durations?.[0]?.seconds, format: setFormat }
           : photoset
-          ? { kind: 'image', model: this.modelSel.image, photoset_id: photoset.id, prompt: extra.prompt || '' }
+          ? { kind: 'image', model: this.setModel(photoset)?.id || this.modelSel.image, photoset_id: photoset.id, prompt: extra.prompt || '' }
           : {
             kind, model: this.model.id, prompt: this.prompt.trim(), format: kind === 'song' ? undefined : this.format.ratio,
             duration: kind === 'video' ? this.durationOpt?.seconds : kind === 'song' ? this.songDuration : undefined,

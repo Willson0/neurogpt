@@ -55,7 +55,7 @@ class UserResolver
     /**
      * The person behind a signed Telegram payload. A bot user is found by id (= Telegram id) and only gets the app
      * profile and fresh username/premium/activity; the bot counters are not touched. Someone who never started the
-     * bot gets a full row in the bot table `users` (every column from models.py) plus the signup bonus.
+     * bot gets a full row in the bot table `users` (every column from models.py), with no bonus at start.
      */
     public function upsert(array $tg, ?string $startParam = null): User
     {
@@ -89,7 +89,7 @@ class UserResolver
         $link = $startParam && ! $referrerTgId && BotLink::where('name', $startParam)->exists() ? $startParam : null;
 
         try {
-            // The account and its welcome bonus appear together or not at all.
+            // No tokens at start: the referral tokens come with the first purchase (PaymentService::creditReferralTokens).
             $user = DB::transaction(function () use ($id, $username, $tg, $referrerId, $link, $profile) {
                 $user = new User;
                 $user->forceFill(User::botDefaults() + BotSync::defaultModelIds());
@@ -99,9 +99,6 @@ class UserResolver
                 ]);
                 $user->save();
                 $user->updateProfile($profile);
-                if ($bonus = (int) config('neurogpt.bonus.signup')) {
-                    $this->wallet->credit($user, $bonus, 'bonus', 'Приветственный бонус');
-                }
 
                 return $user;
             });

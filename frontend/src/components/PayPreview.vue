@@ -2,7 +2,7 @@
   <div class="boot pay-preview">
     <template v-if="item">
       <Sticker :name="item.kind === 'tokens' ? 'coin' : item.plan === 'pro' ? 'crown' : 'gem'" :size="96" glow glow-color="--gold-hi" />
-      <h3>{{ item.name }}</h3>
+      <h3>{{ title }}</h3>
       <p>{{ line }}</p>
       <div class="gets"><span class="glass"><b>{{ rub }}</b></span><span v-if="item.methods.stars" class="glass">{{ stars }}</span></div>
       <a v-if="item.available && item.telegram_link" class="pill-btn hot" style="text-decoration:none" :href="item.telegram_link">Оплатить в Telegram</a>
@@ -20,7 +20,7 @@
 
 <script>
 import { api } from '../services/api'
-import { fmt, plural } from '../services/format'
+import { fmt, plural, packHasCounts, packPhotos, packVideos } from '../services/format'
 import Sticker from './Sticker.vue'
 
 // The payment link (/pay/<shop id>) opened in a plain browser: there is no Telegram sign-in here, so the page shows
@@ -33,9 +33,11 @@ export default {
   computed: {
     rub() { return `${Number(this.item.price).toLocaleString('ru-RU')} ₽` },
     stars() { return `${Number(this.item.stars).toLocaleString('ru-RU')} ⭐` },
+    // a token row with counts in description is named by them ("💫 15 изображений"), not by text_name ("500 токенов")
+    title() { return this.item.kind === 'tokens' && packHasCounts(this.item) ? packPhotos(this.item) : this.item.name },
     line() {
       const i = this.item
-      if (i.kind === 'tokens') return `${fmt(i.tokens)} ${plural(i.tokens, 'токен', 'токена', 'токенов')} в NeuroGPT`
+      if (i.kind === 'tokens') return packHasCounts(i) ? [packVideos(i), 'в NeuroGPT'].filter(Boolean).join(' ') : `${fmt(i.tokens)} ${plural(i.tokens, 'токен', 'токена', 'токенов')} в NeuroGPT`
       return `Подписка NeuroGPT на ${i.days} ${plural(i.days, 'день', 'дня', 'дней')}`
     },
   },

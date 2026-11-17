@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -181,6 +182,26 @@ class Photoset extends Model
     public function generationKind(): string
     {
         return $this->isVideo() ? 'video' : 'image';
+    }
+
+    /**
+     * The bot's recommended model of the set: prompts.model holds the model id the bot uses (models.name), e.g.
+     * "gemini-nano-banana-2.1"; a display name (models.text_name) is accepted too. Only an active model of the kind
+     * this set makes counts. Null means the user's own model is used (prompts.model is null), as in the bot.
+     *
+     * @param  Collection<int, AiModel>|null  $active  active models, to avoid a query per set
+     */
+    public function recommendedModel(?Collection $active = null): ?AiModel
+    {
+        $wanted = mb_strtolower(trim((string) ($this->attributes['model'] ?? '')));
+        if ($wanted === '') {
+            return null;
+        }
+        $kind = $this->generationKind();
+        $list = ($active ?? AiModel::active()->ofKind($kind)->get())->filter(fn (AiModel $m) => $m->kind === $kind);
+
+        return $list->first(fn (AiModel $m) => mb_strtolower((string) $m->bot_name) === $wanted)
+            ?? $list->first(fn (AiModel $m) => mb_strtolower((string) $m->name) === $wanted);
     }
 
     public function scopeActive(Builder $q): Builder

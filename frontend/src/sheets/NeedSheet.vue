@@ -6,7 +6,7 @@
     <li>
       <div class="row">
         <span class="radio-mark" style="border-color:var(--color-cta);background:var(--color-cta);color:var(--color-cta-ink)"><svg aria-hidden="true"><use href="#i-tick" /></svg></span>
-        <span class="t"><b>{{ tok(pack.tokens) }}</b><span>≈ {{ Math.floor(pack.tokens / imagePrice) }} картинок</span></span>
+        <span class="t"><b>{{ packPhotos(pack) }}</b><span v-if="hasCounts">{{ packVideos(pack) || 'Не сгорают' }}</span><span v-else>≈ {{ Math.floor(pack.tokens / imagePrice) }} картинок</span></span>
         <span class="end num">{{ price }}</span>
       </div>
     </li>
@@ -20,7 +20,7 @@
 import { useApp } from '../stores/app'
 import Sticker from '../components/Sticker.vue'
 import PayMethod from '../components/PayMethod.vue'
-import { fmt, tok } from '../services/format'
+import { fmt, tok, packPhotos, packVideos, packHasCounts } from '../services/format'
 
 export default {
   name: 'NeedSheet',
@@ -31,9 +31,10 @@ export default {
     pack() { return this.app.packs.find((p) => p.tokens >= this.lack) || this.app.packs[0] },
     price() { return this.pack ? this.app.priceLabel(this.pack.price, this.pack.stars) : '' },
     imagePrice() { return this.app.models.image[0]?.price || 8 },
+    hasCounts() { return packHasCounts(this.pack) },
   },
   methods: {
-    fmt, tok,
+    fmt, tok, packPhotos, packVideos,
     buy() {
       this.app.packIndex = this.app.packs.indexOf(this.pack)
       this.app.closeSheet()

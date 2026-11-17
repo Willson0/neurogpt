@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\PaymentsController;
 use App\Http\Controllers\Api\Admin\PromosController;
 use App\Http\Controllers\Api\Admin\SettingsController;
 use App\Http\Controllers\Api\Admin\UsersController;
+use App\Http\Controllers\Api\AnswerController;
 use App\Http\Controllers\Api\BootstrapController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\EventController;
@@ -32,6 +33,9 @@ Route::get('config', fn () => response()->json([
 // The payment link of a shop row (GET /pay/{id} in the app): what is sold, without sign-in.
 Route::get('pay/{item}', [PaymentController::class, 'link'])->whereNumber('item')->middleware('throttle:guard');
 
+// An AI answer opened from a bot button by a signed link (/answer?id=<id>&sig=<hmac>), without sign-in.
+Route::get('answers/{id}/shared', [AnswerController::class, 'shared'])->whereNumber('id')->middleware('throttle:guard');
+
 // throttle:guard counts by IP before the signature is checked, throttle:api counts by user after it.
 Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->group(function () {
     Route::post('auth/telegram', [MeController::class, 'show']);
@@ -48,6 +52,9 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::patch('generations/{generation}', [GenerationController::class, 'update'])->whereNumber('generation');
     Route::post('generations/{generation}/cancel', [GenerationController::class, 'cancel'])->whereNumber('generation');
     Route::post('prompt/improve', [GenerationController::class, 'improve'])->middleware('throttle:improve');
+
+    // The answer page (/answer?id=<query_logs.id>): one AI answer of this person from the bot table query_logs.
+    Route::get('answers/{id}', [AnswerController::class, 'show'])->whereNumber('id');
 
     Route::get('chats', [ChatController::class, 'index']);
     Route::get('chats/{chat}', [ChatController::class, 'show'])->whereNumber('chat');

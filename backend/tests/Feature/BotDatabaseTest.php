@@ -43,11 +43,11 @@ class BotDatabaseTest extends TestCase
 
     public function test_a_new_person_gets_a_complete_bot_row(): void
     {
-        $this->as(4242)->getJson('/api/me')->assertOk()->assertJsonPath('balance', 50)->assertJsonPath('telegram_id', 4242);
+        $this->as(4242)->getJson('/api/me')->assertOk()->assertJsonPath('balance', 0)->assertJsonPath('telegram_id', 4242);
 
         $row = (array) DB::table('users')->where('id', 4242)->first();
-        // every NOT NULL column of models.py is filled, the balance is the signup bonus in `tokens`
-        $this->assertSame(50, (int) $row['tokens']);
+        // every NOT NULL column of models.py is filled; nothing is credited at start
+        $this->assertSame(0, (int) $row['tokens']);
         $this->assertSame('free', $row['sub']);
         $this->assertSame('free', $row['autocont_sub']);
         $this->assertEquals(1, $row['save_context']);
@@ -261,7 +261,8 @@ class BotDatabaseTest extends TestCase
         $this->user(800);
         $this->as(801, 'friend_800')->getJson('/api/me')->assertOk();
         $this->assertSame(800, (int) DB::table('users')->where('id', 801)->value('referal_user_from'));
-        $this->assertEquals(0, DB::table('users')->where('id', 801)->value('ref_paid'), 'ref_paid stays the bot\'s business');
+        $this->assertEquals(0, DB::table('users')->where('id', 801)->value('ref_paid'), 'nothing is paid for the referral before a purchase');
+        $this->assertSame(0, User::find(801)->balance);
     }
 
     public function test_destructive_commands_are_refused_outside_tests(): void

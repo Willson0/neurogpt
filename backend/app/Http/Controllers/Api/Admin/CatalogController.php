@@ -6,6 +6,7 @@ use App\Exceptions\TooManyActive;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\GenerationResource;
 use App\Models\AiModel;
+use App\Models\Bot\BotConfig;
 use App\Models\ModelMeta;
 use App\Models\Generation;
 use App\Models\News;
@@ -229,6 +230,8 @@ class CatalogController extends Controller
         $tools[$slug] = $tool;
         Settings::put('tools', $tools);
         Settings::put('tool_engines', $engines);
+        // the price lives in the bot database (table `config`, "tools / <slug>"), so the bot sees the same number
+        Tools::putCost($slug, (int) $data['cost']);
         Settings::forgetDeleted("model:tool:$slug");
 
         return response()->json(['data' => $this->tool($slug, $tool)], $creating ? 201 : 200);
@@ -244,6 +247,7 @@ class CatalogController extends Controller
         unset($engines[$slug]);
         Settings::put('tool_engines', $engines);
         Settings::markDeleted("model:tool:$slug");
+        BotConfig::forget(BotConfig::TOOLS, $slug);
 
         return response()->json(['ok' => true]);
     }
@@ -264,7 +268,7 @@ class CatalogController extends Controller
         $e = Tools::engine($slug);
 
         return [
-            'slug' => $slug, 'name' => $t['name'], 'hint' => $t['hint'] ?? '', 'cost' => (int) $t['cost'], 'icon' => $t['icon'] ?? 'wand',
+            'slug' => $slug, 'name' => $t['name'], 'hint' => $t['hint'] ?? '', 'cost' => Tools::cost($slug), 'icon' => $t['icon'] ?? 'wand',
             'group' => $t['group'] ?? 'fix', 'input' => $t['input'] ?? 'none', 'placeholder' => $t['placeholder'] ?? '',
             'prompt' => $t['prompt'] ?? '', 'input_prefix' => $t['input_prefix'] ?? '', 'output' => $t['output'] ?? 'image',
             'choices' => collect($t['options'] ?? [])->map(fn ($o, $id) => ['id' => (string) $id, 'name' => $o['name'], 'prompt' => $o['prompt']])->values(),

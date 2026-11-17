@@ -83,6 +83,8 @@ export const api = {
   checkPromo: (code, itemId) => request('POST', '/promos/check', { json: clean({ code, item_id: itemId }) }),
   /** The payment link of a shop row (/pay/<id>): works without sign-in. */
   payItem: (itemId) => request('GET', `/pay/${itemId}`),
+  /** One AI answer from the bot table query_logs (the answer page). With sig: the bot's signed link, no sign-in. */
+  answer: (id, sig) => (sig ? request('GET', `/answers/${id}/shared`, { query: { sig } }) : request('GET', `/answers/${id}`)),
   payment: (id) => request('GET', `/payments/${id}`),
   publicConfig: () => request('GET', '/config'),
 }

@@ -42,6 +42,17 @@ class GenerationService
         $toolCfg = $tool ? config("neurogpt.tools.$tool") : null;
 
         $model = $this->model($kind, $tool, $data['model'] ?? null);
+        if ($photoset && ($recommended = $photoset->recommendedModel())) {
+            // As in the bot: a set runs on its recommended model (prompts.model) when the user may use it and has
+            // enough tokens for it; otherwise on the user's own model. The price is that model's price in `models`.
+            if ($user->canUse($recommended) && $user->balance >= self::unitPrice($recommended)) {
+                $model = $recommended;
+            }
+            if ($kind === 'video') {
+                // a set video is the shortest one of whichever model runs it
+                $data['duration'] = array_key_first($model->durations());
+            }
+        }
         if (! $user->canUse($model)) {
             throw new ModelLocked($model->min_plan);
         }
@@ -51,7 +62,7 @@ class GenerationService
 
         $count = $kind === 'image' && ! $photoset ? max(1, min(4, (int) ($data['count'] ?? 1))) : 1;
         $unit = match ($kind) {
-            'tool' => (int) $toolCfg['cost'],
+            'tool' => Tools::cost($tool),
             'video' => (int) ceil($model->price * ($model->durations()[$params['duration']] ?? 1)),
             // Songs are priced per 30 seconds: 30 s = 1x, 60 s = 2x, 120 s = 4x.
             'song' => (int) ($model->price * max(1, intdiv((int) ($params['duration'] ?? 30), 30))),
@@ -106,6 +117,14 @@ class GenerationService
         }
 
         return $created;
+    }
+
+    /** One run of a model: its price in the bot table `models` (a video model: the shortest video). */
+    public static function unitPrice(AiModel $model): int
+    {
+        $durations = $model->durations();
+
+        return (int) ceil($model->price * ($durations ? reset($durations) : 1));
     }
 
     private function model(string $kind, ?string $tool, ?string $slug): AiModel

@@ -39,7 +39,7 @@
 
 <script>
 import { useApp } from '../stores/app'
-import { fmt, reduceMotion } from '../services/format'
+import { fmt, plural, reduceMotion } from '../services/format'
 import { tg } from '../services/telegram'
 import LensBar from '../components/LensBar.vue'
 import Sticker from '../components/Sticker.vue'
@@ -68,7 +68,11 @@ export default {
       const i = this.info, year = this.app.period === 'year'
       return this.app.priceLabel(year ? i.year_month : i.month, year ? Math.round(i.stars_year / 12) : i.stars_month)
     },
-    line() { return this.info.tokens ? `${fmt(this.info.tokens)} токенов в месяц` : 'Бонус каждый день' },
+    // daily_tokens from the bot table `config` (category daily_tokens, name = plan), else the monthly tokens of the plan
+    line() {
+      if (this.info.daily_tokens) return `${fmt(this.info.daily_tokens)} ${plural(this.info.daily_tokens, 'токен', 'токена', 'токенов')} каждый день`
+      return this.info.tokens ? `${fmt(this.info.tokens)} токенов в месяц` : 'Бонус каждый день'
+    },
   },
   watch: {
     hasYear: { immediate: true, handler(v) { if (!v && this.app.period === 'year') this.app.period = 'month' } },

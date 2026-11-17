@@ -35,8 +35,10 @@ class BootstrapController extends Controller
                     'durations' => collect($m->durations())->map(fn ($mult, $sec) => ['seconds' => (int) $sec, 'price' => (int) ceil($m->price * $mult)])->values(),
                 ] : []),
             ])->values()),
-            'photosets' => Photoset::active()->get()->map(fn ($p) => [
+            'photosets' => Photoset::active()->get()->map(fn (Photoset $p) => [
                 'id' => $p->id, 'kind' => $p->kind ?: 'photo', 'name' => $p->name, 'description' => $p->description,
+                // the bot's recommended model of the set (prompts.model): the set costs what that model costs
+                'model' => $p->recommendedModel($models)?->slug,
                 'cover_url' => $p->cover_url, 'seed' => $p->seed, 'palette' => $p->palette,
                 'trending' => $p->is_trending, 'trend_hint' => $p->trend_hint,
             ])->values(),
@@ -46,7 +48,7 @@ class BootstrapController extends Controller
             'plans' => $shop->plans(),
             // Prompts and provider settings stay on the server: the app only gets what it shows.
             'tools' => collect(config('neurogpt.tools'))->only($activeTools)->map(fn ($t, $id) => [
-                'id' => $id, 'name' => $t['name'], 'hint' => $t['hint'], 'cost' => $t['cost'], 'icon' => $t['icon'] ?? 'wand',
+                'id' => $id, 'name' => $t['name'], 'hint' => $t['hint'], 'cost' => Tools::cost($id), 'icon' => $t['icon'] ?? 'wand',
                 'group' => $t['group'] ?? 'fix', 'input' => $t['input'] ?? 'none', 'placeholder' => $t['placeholder'] ?? null,
                 'options' => collect($t['options'] ?? [])->map(fn ($o, $key) => ['id' => $key, 'name' => $o['name']])->values(),
                 'output' => $t['output'] ?? 'image',

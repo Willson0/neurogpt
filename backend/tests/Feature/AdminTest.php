@@ -84,28 +84,29 @@ class AdminTest extends TestCase
         $this->admin()->putJson('/api/admin/settings', ['values' => [
             'packs' => [['tokens' => 300, 'price' => 250, 'badge' => 'Хит'], ['tokens' => 50, 'price' => 60]],
             'plans' => ['plus' => ['name' => 'Плюс', 'month' => 900, 'year_month' => 600, 'tokens' => 1200], 'pro' => ['name' => 'Pro', 'month' => 1980, 'year_month' => 1380, 'tokens' => 3000]],
-            'bonus' => ['signup' => 70, 'daily' => 9],
+            'bonus' => ['signup' => 70, 'daily' => 9, 'referral_tokens' => 70, 'referral_tokens_to' => 'friend'],
             'stars' => ['rub_per_star' => 2.5],
             'limits' => ['active_generations' => 2],
             'telegram.support_url' => 'https://t.me/help_me',
-        ]])->assertOk()->assertJsonPath('data.bonus.referral_percent', 20)->assertJsonPath('data.bonus.signup', 70);
+        ]])->assertOk()->assertJsonPath('data.bonus.referral_percent', 20)->assertJsonPath('data.bonus.referral_tokens', 70)
+            ->assertJsonPath('data.bonus.referral_tokens_to', 'friend');
 
         $boot = $this->as(7)->getJson('/api/bootstrap')->assertOk()
-            ->assertJsonPath('user.balance', 70)->assertJsonPath('packs.0.tokens', 50)->assertJsonPath('packs.1.stars', 100)
+            ->assertJsonPath('user.balance', 0)->assertJsonPath('packs.0.tokens', 50)->assertJsonPath('packs.1.stars', 100)
             ->assertJsonPath('plans.plus.name', 'Плюс')->assertJsonPath('support_url', 'https://t.me/help_me');
         $this->assertSame(0, $boot->json('plans.free.month'));
         $this->as(7)->postJson('/api/payments/topup', ['tokens' => 100, 'method' => 'stars'])->assertStatus(422);
 
         // a fresh process reads the same values back from the table
-        config(['neurogpt.bonus.signup' => 50, 'neurogpt.packs' => []]);
+        config(['neurogpt.bonus.referral_tokens' => 50, 'neurogpt.packs' => []]);
         Settings::apply();
-        $this->assertSame(70, config('neurogpt.bonus.signup'));
+        $this->assertSame(70, config('neurogpt.bonus.referral_tokens'));
         $this->assertSame(20, (int) config('neurogpt.bonus.referral_percent'));
         $this->assertCount(2, config('neurogpt.packs'));
         $this->assertSame(1200, (int) config('neurogpt.limits.generation_timeout'));
 
         foreach ([
-            ['packs' => []], ['bonus' => ['signup' => -1]], ['bonus' => ['hack' => 1]], ['admin_ids' => [1]],
+            ['packs' => []], ['bonus' => ['signup' => -1]], ['bonus' => ['hack' => 1]], ['bonus' => ['referral_tokens_to' => 'everyone']], ['admin_ids' => [1]],
             ['telegram.bot_token' => 'x'], ['stars' => ['rub_per_star' => 0]], ['plans' => ['plus' => ['name' => 'x']]],
         ] as $bad) {
             $this->admin()->putJson('/api/admin/settings', ['values' => $bad])->assertStatus(422);

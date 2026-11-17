@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments;
 
+use App\Models\Bot\BotConfig;
 use App\Models\Bot\ShopItem;
 use Illuminate\Support\Collection;
 use Throwable;
@@ -110,6 +111,8 @@ class Shop
 
         return $plans->map(function ($p, $key) use ($items, $stars, $category) {
             $p['category'] = $category;
+            // the bot's daily tokens of this plan (table `config`: daily_tokens / free|plus|pro / N)
+            $p['daily_tokens'] = BotConfig::int(BotConfig::DAILY_TOKENS, (string) $key);
             if ($items->isEmpty() || $key === 'free') {
                 return $p + ['available' => true, 'stars_month' => $stars($p['month']), 'stars_year' => $stars($p['year_month'] * 12)];
             }

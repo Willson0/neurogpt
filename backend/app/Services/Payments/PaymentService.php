@@ -308,6 +308,7 @@ class PaymentService
         $this->fulfil($locked, $via);
         $locked->details->update(['status' => 'succeeded', 'credited_at' => now(), 'raw' => $raw]);
         User::whereKey($locked->user_id)->increment('paid_money', (float) $locked->rub_total);
+        $this->creditReferralTokens($locked, $via);
         $this->creditReferrer($locked);
         $this->promos->consume($locked);
     }
@@ -432,7 +433,7 @@ class PaymentService
     /**
      * The inviter (users.referal_user_from of the buyer) gets referral_percent (20 %) of the ruble price into
      * users.ref_balance, once per payment. Called inside the payment's locked transaction right after delivery.
-     * The buyer's users.ref_paid is set to true at the first commission ("this referral has brought money").
+     * (users.ref_paid of the buyer is set by creditReferralTokens at the first purchase.)
      */
     private function creditReferrer(Payment $locked): void
     {
@@ -459,10 +460,38 @@ class PaymentService
 
         // ref_balance = ref_balance + n in SQL: the bot's writes to other columns of that row are not touched.
         User::query()->whereKey($referrerId)->increment('ref_balance', $amount);
-        if (! $buyer->ref_paid) {
-            User::query()->whereKey($buyer->id)->update(['ref_paid' => true]);
-        }
         $d->update(['referrer_id' => $referrerId, 'ref_amount' => $amount]);
+    }
+
+    /**
+     * The referral tokens (bonus.referral_tokens, 50) are given at the FIRST paid purchase of a person who came by an
+     * invite link, not when they start the bot or open the app. bonus.referral_tokens_to says who gets them: "friend"
+     * (the buyer) or "inviter". The same path runs for the YooKassa webhook, the Stars webhook and a manual re-check.
+     *
+     * The buyer's users.ref_paid ("the referral reward is paid") is the once-only flag, claimed with
+     * "UPDATE ... WHERE ref_paid = 0": a second purchase, a repeated notification or a reward the bot already paid
+     * (it set ref_paid itself) give nothing.
+     */
+    private function creditReferralTokens(Payment $locked, string $via): void
+    {
+        $buyer = User::query()->whereKey($locked->user_id)->first(['id', 'referal_user_from', 'ref_paid']);
+        $referrerId = (int) ($buyer?->referal_user_from ?? 0);
+        if (! $buyer || $buyer->ref_paid || ! $referrerId || $referrerId === (int) $buyer->id) {
+            return;
+        }
+        if (! User::query()->whereKey($buyer->id)->where('ref_paid', false)->update(['ref_paid' => true])) {
+            return; // claimed by a parallel payment or by the bot
+        }
+
+        $amount = (int) config('neurogpt.bonus.referral_tokens', 50);
+        $toInviter = config('neurogpt.bonus.referral_tokens_to') === 'inviter';
+        $receiver = User::query()->whereKey($toInviter ? $referrerId : $buyer->id)->lockForUpdate()->first();
+        if ($amount <= 0 || ! $receiver || ($toInviter && $receiver->is_blocked)) {
+            return;
+        }
+        $this->wallet->credit($receiver, $amount, 'referral',
+            $toInviter ? 'Бонус за приглашённого друга' : 'Бонус за первую покупку по приглашению',
+            ['payment_id' => $locked->id], $via);
     }
 
     private function fulfil(Payment $payment, string $via): void

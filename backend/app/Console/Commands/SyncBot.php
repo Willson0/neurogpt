@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Photoset;
 use App\Services\Bot\BotSync;
 use App\Services\Generation\ImageNormalizer;
+use App\Services\Generation\Tools;
 use App\Services\Telegram\Bot;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
@@ -13,7 +14,7 @@ use Throwable;
 
 /**
  * The catalog is the bot tables `models` and `prompts`; new rows there get their app settings (link id, provider,
- * photo or video set). Prompt examples stored as a Telegram file_id are downloaded once and become the cover in the app.
+ * photo or video set), tools get their price row in `config`. Prompt examples stored as a Telegram file_id are downloaded once and become the cover in the app.
  * Runs every 5 minutes from the scheduler and on every start (db:seed).
  */
 class SyncBot extends Command
@@ -26,6 +27,12 @@ class SyncBot extends Command
     {
         $created = $sync->pullCatalog();
         $this->info("New in the bot tables: {$created['models']} models, {$created['photosets']} sets.");
+        try {
+            // tool prices live in the bot table `config` ("tools / <slug>"): a tool without a row gets one
+            $this->info('Tool prices added to `config`: '.Tools::seedCosts().'.');
+        } catch (Throwable $e) {
+            $this->warn('Tool prices were not written to `config`: '.$e->getMessage());
+        }
 
         $covers = 0;
         if (config('neurogpt.telegram.bot_token')) {

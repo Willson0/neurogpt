@@ -107,6 +107,17 @@ class Bot
         return rtrim((string) config('neurogpt.telegram.webapp_url'), '/').'/pay/'.$itemId;
     }
 
+    /**
+     * The answer page of one AI answer (query_logs.id). Signed (sig = AnswerController::signature) it opens without
+     * Telegram sign-in, e.g. from a plain url button; unsigned it needs a web_app button and shows only the author's answer.
+     */
+    public static function answerLink(int $logId, bool $signed = true): string
+    {
+        $url = rtrim((string) config('neurogpt.telegram.webapp_url'), '/').'/answer?id='.$logId;
+
+        return $signed ? $url.'&sig='.\App\Http\Controllers\Api\AnswerController::signature($logId) : $url;
+    }
+
     /** A value the app understands as a screen: the startapp alphabet, and not a referral code. */
     public static function isScreen(?string $value): bool
     {

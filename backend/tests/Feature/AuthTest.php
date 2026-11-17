@@ -28,11 +28,12 @@ class AuthTest extends TestCase
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1001).'&user[id]=1'])->getJson('/api/me')->assertStatus(401);
     }
 
-    public function test_first_request_creates_the_user_with_a_welcome_bonus(): void
+    public function test_first_request_creates_the_user_without_tokens_at_start(): void
     {
-        $this->as(1001)->postJson('/api/auth/telegram')->assertOk()->assertJsonPath('balance', 50)
+        // no bonus at start: the referral tokens come with the first purchase of an invited person
+        $this->as(1001)->postJson('/api/auth/telegram')->assertOk()->assertJsonPath('balance', 0)
             ->assertJsonPath('invite_link', 'https://t.me/neuroai_gptbot?start=friend_1001');
-        $this->as(1001)->getJson('/api/me')->assertJsonPath('balance', 50);
+        $this->as(1001)->getJson('/api/me')->assertJsonPath('balance', 0);
         $this->assertSame(1, User::count());
     }
 
@@ -76,7 +77,7 @@ class AuthTest extends TestCase
 
     public function test_daily_bonus_is_granted_once_a_day(): void
     {
-        $this->as(1)->postJson('/api/bonus/daily')->assertJsonPath('granted', true)->assertJsonPath('user.balance', 55);
-        $this->as(1)->postJson('/api/bonus/daily')->assertJsonPath('granted', false)->assertJsonPath('user.balance', 55);
+        $this->as(1)->postJson('/api/bonus/daily')->assertJsonPath('granted', true)->assertJsonPath('user.balance', 5);
+        $this->as(1)->postJson('/api/bonus/daily')->assertJsonPath('granted', false)->assertJsonPath('user.balance', 5);
     }
 }

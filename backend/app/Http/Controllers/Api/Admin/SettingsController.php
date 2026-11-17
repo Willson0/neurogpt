@@ -94,10 +94,15 @@ class SettingsController extends Controller
                 'v.*.tokens' => ['required', 'integer', 'between:0,100000000'],
             ],
             'bonus' => [
-                // referral (the old "tokens for a friend's first generation") is still accepted from old forms but not used
-                'v' => ['required', 'array:signup,daily,referral,referral_percent'],
-                'v.*' => ['integer', 'between:0,1000000'],
+                // signup (the old bonus at start) and referral (tokens for a friend's first generation) are still
+                // accepted from old forms but not used: the referral tokens now come with the first purchase.
+                'v' => ['required', 'array:signup,daily,referral,referral_percent,referral_tokens,referral_tokens_to'],
+                'v.signup' => ['integer', 'between:0,1000000'],
+                'v.referral' => ['integer', 'between:0,1000000'],
+                'v.daily' => ['integer', 'between:0,1000000'],
+                'v.referral_tokens' => ['integer', 'between:0,1000000'],
                 'v.referral_percent' => ['integer', 'between:0,100'],
+                'v.referral_tokens_to' => ['string', 'in:friend,inviter'],
             ],
             'limits' => [
                 'v' => ['required', 'array:active_generations,referral_rewards,improve_per_day,generation_timeout'],
@@ -136,7 +141,9 @@ class SettingsController extends Controller
             'plans' => collect(['free' => ['name' => 'Free', 'month' => 0, 'year_month' => 0, 'tokens' => 0]] + $value)
                 ->only(['free', 'plus', 'pro'])
                 ->map(fn ($p) => ['name' => $p['name'], 'month' => $p['month'] + 0, 'year_month' => $p['year_month'] + 0, 'tokens' => (int) $p['tokens']])->all(),
-            'bonus', 'limits' => array_map('intval', $value),
+            'bonus' => collect($value)->except(['signup', 'referral'])
+                ->map(fn ($v, $k) => $k === 'referral_tokens_to' ? (string) $v : (int) $v)->all(),
+            'limits' => array_map('intval', $value),
             'features' => ['songs' => (bool) ($value['songs'] ?? false)],
             'stars' => array_filter([
                 'enabled' => isset($value['enabled']) ? (bool) $value['enabled'] : null,

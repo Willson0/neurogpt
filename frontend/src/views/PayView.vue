@@ -4,7 +4,7 @@
     <template v-else>
       <div class="calc">
         <div class="tgs-wrap"><TgsPlayer v-if="item.kind === 'tokens'" name="token" :size="120" /><Sticker v-else :name="item.plan === 'pro' ? 'crown' : 'gem'" :size="96" glow glow-color="--gold-hi" /></div>
-        <div class="amount num">{{ item.name }}<small>{{ line }}</small></div>
+        <div class="amount num">{{ title }}<small>{{ line }}</small></div>
         <div class="gets">
           <span v-if="price.off" class="glass"><s>{{ app.priceLabel(item.price, item.stars) }}</s></span>
           <span class="glass"><b>{{ app.priceLabel(item.price, item.stars, item) }}</b></span>
@@ -31,7 +31,7 @@
 
 <script>
 import { useApp } from '../stores/app'
-import { fmt, plural } from '../services/format'
+import { fmt, plural, packHasCounts, packPhotos, packVideos } from '../services/format'
 import TgsPlayer from '../components/TgsPlayer.vue'
 import Sticker from '../components/Sticker.vue'
 import PayMethod from '../components/PayMethod.vue'
@@ -45,9 +45,11 @@ export default {
     app() { return useApp() },
     item() { return this.app.payItem },
     price() { return this.app.discounted(this.item.price, this.item.stars, this.item) },
+    // a token row with counts in description is named by them ("💫 15 изображений"), not by text_name ("500 токенов")
+    title() { return this.item.kind === 'tokens' && packHasCounts(this.item) ? packPhotos(this.item) : this.item.name },
     line() {
       const i = this.item
-      if (i.kind === 'tokens') return `${fmt(i.tokens)} ${plural(i.tokens, 'токен', 'токена', 'токенов')}, не сгорают`
+      if (i.kind === 'tokens') return packHasCounts(i) ? [packVideos(i), 'не сгорают'].filter(Boolean).join(', ') : `${fmt(i.tokens)} ${plural(i.tokens, 'токен', 'токена', 'токенов')}, не сгорают`
       return `Подписка на ${i.days} ${plural(i.days, 'день', 'дня', 'дней')}${i.tokens ? `, ${fmt(i.tokens)} токенов` : ''}`
     },
   },

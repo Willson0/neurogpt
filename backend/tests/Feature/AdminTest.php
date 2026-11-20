@@ -88,7 +88,7 @@ class AdminTest extends TestCase
             'stars' => ['rub_per_star' => 2.5],
             'limits' => ['active_generations' => 2],
             'telegram.support_url' => 'https://t.me/help_me',
-        ]])->assertOk()->assertJsonPath('data.bonus.referral_percent', 20)->assertJsonPath('data.bonus.signup', 70);
+        ]])->assertOk()->assertJsonPath('data.bonus.referral', 50)->assertJsonPath('data.bonus.signup', 70);
 
         $boot = $this->as(7)->getJson('/api/bootstrap')->assertOk()
             ->assertJsonPath('user.balance', 70)->assertJsonPath('packs.0.tokens', 50)->assertJsonPath('packs.1.stars', 100)
@@ -100,7 +100,7 @@ class AdminTest extends TestCase
         config(['neurogpt.bonus.signup' => 50, 'neurogpt.packs' => []]);
         Settings::apply();
         $this->assertSame(70, config('neurogpt.bonus.signup'));
-        $this->assertSame(20, (int) config('neurogpt.bonus.referral_percent'));
+        $this->assertSame(5, (int) config('neurogpt.bonus.referral') / 10);
         $this->assertCount(2, config('neurogpt.packs'));
         $this->assertSame(1200, (int) config('neurogpt.limits.generation_timeout'));
 

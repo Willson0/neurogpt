@@ -94,10 +94,8 @@ class SettingsController extends Controller
                 'v.*.tokens' => ['required', 'integer', 'between:0,100000000'],
             ],
             'bonus' => [
-                // referral (the old "tokens for a friend's first generation") is still accepted from old forms but not used
-                'v' => ['required', 'array:signup,daily,referral,referral_percent'],
+                'v' => ['required', 'array:signup,daily,referral'],
                 'v.*' => ['integer', 'between:0,1000000'],
-                'v.referral_percent' => ['integer', 'between:0,100'],
             ],
             'limits' => [
                 'v' => ['required', 'array:active_generations,referral_rewards,improve_per_day,generation_timeout'],

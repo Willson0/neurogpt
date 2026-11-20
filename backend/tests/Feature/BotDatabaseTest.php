@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AiModel;
 use App\Models\Bot\BotModel;
+use App\Models\Bot\BotPayment;
 use App\Models\Bot\BotPrompt;
 use App\Models\Bot\QueryLog;
 use App\Models\Bot\ShopItem;
@@ -134,20 +135,12 @@ class BotDatabaseTest extends TestCase
         $this->assertSame('text', QueryLog::where('user_id', 781)->value('type'));
     }
 
-    public function test_a_payment_lives_in_the_bot_table_from_the_start(): void
+    public function test_paid_payment_is_mirrored_into_the_bot_tables_once(): void
     {
         $this->user(782, 0);
-        $id = $this->as(782)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->json('data.id');
-
-        // written to the bot table `payments` at once, waiting for the money
-        $this->assertSame(1, DB::table('payments')->count());
-        $row = DB::table('payments')->first();
-        $this->assertSame([(int) $id, 0, 0, 'XTR', 780.0], [(int) $row->id, (int) $row->is_proceed, (int) $row->was_bought, $row->total_valut, (float) $row->rub_total]);
-        $this->assertFalse(Schema::hasTable('wa_payments') && DB::table('wa_payments')->exists(), 'the old app table is not written any more');
-
-        $payment = Payment::find($id);
+        $payment = Payment::find($this->as(782)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->json('data.id'));
         $msg = ['message_id' => 9, 'chat' => ['id' => 782, 'type' => 'private'], 'from' => ['id' => 782],
-            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->total,
+            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->amount,
                 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_1']];
         $hook = fn () => $this->withHeaders(['X-Telegram-Bot-Api-Secret-Token' => 'whsecret'])->postJson('/api/telegram/webhook', ['update_id' => 1, 'message' => $msg]);
         $hook()->assertOk();
@@ -159,54 +152,39 @@ class BotDatabaseTest extends TestCase
         $this->assertSame(1000, (int) $user->sub_tokens, 'plan tokens go to sub_tokens');
         $this->assertSame(780.0, (float) $user->paid_money);
 
-        $this->assertSame(1, Payment::count());
-        $bp = Payment::first();
+        $this->assertSame(1, BotPayment::count());
+        $bp = BotPayment::first();
         $this->assertTrue($bp->was_bought && $bp->is_proceed);
-        $this->assertSame(['XTR', 780.0, 'ch_1'], [$bp->total_valut, $bp->rub_total, $bp->payment_id]);
+        $this->assertSame('XTR', $bp->total_valut);
+        $this->assertSame(780.0, $bp->rub_total);
         $this->assertSame([782, 782], [(int) $bp->user_id, (int) $bp->recipient_id]);
         $item = ShopItem::find($bp->item_id);
         $this->assertSame(['sub', 'plus', 30, false], [$item->category, $item->item, $item->amount, $item->active]);
-        $this->assertSame('succeeded', $bp->status);
-    }
-
-    public function test_bot_marked_bought_first_is_not_delivered_twice(): void
-    {
-        $this->user(785, 0);
-        $payment = Payment::find($this->as(785)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'stars'])->json('data.id'));
-        // the bot processed this row itself (and delivered it) before Telegram told the app
-        DB::table('payments')->where('id', $payment->id)->update(['was_bought' => true, 'is_proceed' => true]);
-        $this->withHeaders(['X-Telegram-Bot-Api-Secret-Token' => 'whsecret'])->postJson('/api/telegram/webhook', ['update_id' => 2, 'message' => [
-            'message_id' => 1, 'chat' => ['id' => 785, 'type' => 'private'], 'from' => ['id' => 785],
-            'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->total,
-                'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_9'],
-        ]])->assertOk();
-
-        $this->assertSame(0, User::find(785)->balance, 'the app does not credit again');
-        $this->assertSame('delivered_by_bot', $payment->refresh()->details->cancel_reason);
+        $this->assertSame($bp->id, (int) $payment->refresh()->bot_payment_id);
     }
 
     public function test_an_existing_shop_item_is_reused(): void
     {
-        // an inactive bot row with the same pack and price: a config pack payment points to it instead of a new row
-        $item = ShopItem::create(['active' => false, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 450]);
-        $this->user(783, 0);
-        config(['neurogpt.stars.rub_per_star' => 2.0]);
-        $this->as(783)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'stars'])->assertCreated();
+        $item = ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'tokens', 'item' => 'tokens', 'amount' => 500, 'price' => 450]);
+        $user = $this->user(783, 0);
+        $p = Payment::create(['user_id' => 783, 'provider' => 'yookassa', 'provider_payment_id' => 'yk-1', 'idempotence_key' => 'k1',
+            'purpose' => 'topup', 'tokens' => 500, 'amount' => 450, 'rub_amount' => 450, 'status' => 'succeeded', 'credited_at' => now()]);
+        app(BotSync::class)->mirrorPayment($p);
 
-        $this->assertSame($item->id, (int) Payment::firstOrFail()->item_id);
+        $this->assertSame($item->id, (int) BotPayment::firstOrFail()->item_id);
+        $this->assertSame('yk-1', BotPayment::firstOrFail()->payment_id);
         $this->assertSame(1, ShopItem::count());
     }
 
     public function test_bot_catalog_is_pulled_and_admin_edits_go_back_to_the_bot(): void
     {
         $bot = BotModel::create(['type' => 'photo', 'can_image' => true, 'price' => 25, 'name' => 'flux-pro', 'text_name' => 'Flux Pro',
-            'tag' => '', 'only_sub' => true, 'params' => (object) []]);
+            'tag' => '', 'allowed_subs' => ['pro'], 'params' => (object) []]);
         $prompt = BotPrompt::create(['name' => 'Барби', 'prompt' => 'Make a barbie doll', 'trend' => true, 'position' => 1]);
         app(BotSync::class)->pullCatalog();
 
         $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
-        // only_sub = any subscription: the app shows it as plus until an admin narrows it to pro
-        $this->assertSame(['image', 'Flux Pro', 25, 'plus', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
+        $this->assertSame(['image', 'Flux Pro', 25, 'pro', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
         $boot = $this->as(784)->getJson('/api/bootstrap')->assertOk();
         $this->assertSame(25, collect($boot->json('models.image'))->firstWhere('name', 'Flux Pro')['price']);
         $set = collect($boot->json('photosets'))->firstWhere('name', 'Барби');
@@ -218,15 +196,9 @@ class BotDatabaseTest extends TestCase
 
         // an admin edit is written to the bot row
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'free', 'name' => 'Flux'])->assertOk();
+            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'plus', 'name' => 'Flux'])->assertOk();
         $bot->refresh();
-        $this->assertSame([40, 'Flux', false], [$bot->price, $bot->text_name, $bot->only_sub]);
-        // pro is kept on the app side, the bot gets only_sub = true; a later catalog pull does not lose it
-        $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['min_plan' => 'pro'])->assertOk();
-        app(BotSync::class)->pullCatalog();
-        $this->assertTrue($bot->refresh()->only_sub);
-        $this->assertSame('pro', AiModel::find($m->id)->min_plan);
+        $this->assertSame([40, 'Flux', ['plus', 'pro']], [$bot->price, $bot->text_name, $bot->allowed_subs]);
 
         $ps = Photoset::where('prompt_id', $prompt->id)->firstOrFail();
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])

@@ -16,11 +16,11 @@ class BotModel extends Model
 
     protected $guarded = ['id'];
 
-    protected $attributes = ['can_image' => false, 'price' => 0, 'tag' => '', 'only_sub' => false, 'params' => '{}'];
+    protected $attributes = ['can_image' => false, 'price' => 0, 'tag' => '', 'params' => '{}'];
 
     protected function casts(): array
     {
-        return ['can_image' => 'boolean', 'price' => 'integer', 'only_sub' => 'boolean', 'params' => 'array'];
+        return ['can_image' => 'boolean', 'price' => 'integer', 'allowed_subs' => 'array', 'params' => 'array'];
     }
 
     /** App kind of a bot type and back. */
@@ -31,21 +31,25 @@ class BotModel extends Model
         return array_search($kind, self::KINDS, true) ?: null;
     }
 
-    /**
-     * only_sub: the bot only knows "any subscription" or "everybody". The app keeps plus/pro: a model the bot marks
-     * only_sub keeps the app's own plan when it is plus or pro ($local), otherwise it needs at least plus.
-     */
-    public function minPlan(?string $local = null): string
+    /** allowed_subs: null = everybody, otherwise the list of subscriptions. The app keeps the lowest one. */
+    public function minPlan(): string
     {
-        if (! $this->only_sub) {
+        $subs = $this->allowed_subs;
+        if (! is_array($subs) || $subs === [] || in_array('free', $subs, true)) {
             return 'free';
         }
+        $rank = ['free' => 0, 'plus' => 1, 'pro' => 2];
+        usort($subs, fn ($a, $b) => ($rank[$a] ?? 9) <=> ($rank[$b] ?? 9));
 
-        return in_array($local, ['plus', 'pro'], true) ? $local : 'plus';
+        return (string) $subs[0];
     }
 
-    public static function onlySubFor(?string $minPlan): bool
+    public static function subsFor(string $minPlan): ?array
     {
-        return in_array($minPlan, ['plus', 'pro'], true);
+        return match ($minPlan) {
+            'plus' => ['plus', 'pro'],
+            'pro' => ['pro'],
+            default => null,
+        };
     }
 }

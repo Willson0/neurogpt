@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
  * A model of the app catalog (wa_models): how it is shown and which provider runs it.
  *
  * When bot_model_id points to a row of the bot table `models`, that row is the source of truth for
- * name (text_name), price and who may use it (only_sub; plus vs pro stays in wa_models.min_plan): they are read from it, and a change made in the
+ * name (text_name), price and who may use it (allowed_subs): they are read from it, and a change made in the
  * admin panel is written back to it, so the bot and the app always charge the same. Tools and songs have no
  * bot counterpart and keep their own values.
  */
@@ -84,14 +84,14 @@ class AiModel extends Model
 
     public function getMinPlanAttribute($value): string
     {
-        return ($bot = $this->linked()) ? $bot->minPlan($value) : (string) ($value ?: 'free');
+        return ($bot = $this->linked()) ? $bot->minPlan() : (string) ($value ?: 'free');
     }
 
     public function setMinPlanAttribute($value): void
     {
         $this->attributes['min_plan'] = $value ?: 'free';
         if ($bot = $this->linked()) {
-            $bot->only_sub = BotModel::onlySubFor((string) $value);
+            $bot->allowed_subs = BotModel::subsFor((string) $value);
         }
     }
 

@@ -98,15 +98,6 @@ class Bot
         return $url.'?startapp='.$screen;
     }
 
-    /**
-     * The payment link of a shop row: a plain GET address, https://<app>/pay/<shop id>. Inside Telegram (web_app button)
-     * it opens the payment screen of that item; in a browser it shows the item and a button that opens it in Telegram.
-     */
-    public static function payLink(int $itemId): string
-    {
-        return rtrim((string) config('neurogpt.telegram.webapp_url'), '/').'/pay/'.$itemId;
-    }
-
     /** A value the app understands as a screen: the startapp alphabet, and not a referral code. */
     public static function isScreen(?string $value): bool
     {

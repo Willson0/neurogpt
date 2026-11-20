@@ -9,16 +9,16 @@ use App\Models\AiModel;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Payments\PaymentService;
-use App\Services\Payments\Shop;
 use Illuminate\Http\Request;
 
 class BootstrapController extends Controller
 {
     /** Everything the SPA needs to paint the first screen, in one request. */
-    public function __invoke(Request $request, Shop $shop)
+    public function __invoke(Request $request)
     {
         $user = $request->user();
         $methods = PaymentService::methods();
+        $stars = fn ($rub) => PaymentService::stars($rub);
         $songs = (bool) config('neurogpt.features.songs');
 
         $models = AiModel::active()->whereIn('kind', $songs ? ['image', 'video', 'song'] : ['image', 'video'])->get();
@@ -35,14 +35,16 @@ class BootstrapController extends Controller
                 ] : []),
             ])->values()),
             'photosets' => Photoset::active()->get()->map(fn ($p) => [
-                'id' => $p->id, 'kind' => $p->kind ?: 'photo', 'name' => $p->name, 'description' => $p->description,
+                'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
                 'cover_url' => $p->cover_url, 'seed' => $p->seed, 'palette' => $p->palette,
                 'trending' => $p->is_trending, 'trend_hint' => $p->trend_hint,
             ])->values(),
             'news' => News::visible()->get(['id', 'title', 'subtitle', 'sticker', 'style', 'action']),
-            // The bot table `shop` is the price list (item_id = shop.id); config packs/plans only when the shop has none.
-            'packs' => $shop->packs(),
-            'plans' => $shop->plans(),
+            'packs' => collect(config('neurogpt.packs'))->map(fn ($p) => $p + ['stars' => $stars($p['price'])])->values(),
+            'plans' => collect(config('neurogpt.plans'))->map(fn ($p) => $p + [
+                'stars_month' => $p['month'] ? $stars($p['month']) : 0,
+                'stars_year' => $p['year_month'] ? $stars($p['year_month'] * 12) : 0,
+            ]),
             // Prompts and provider settings stay on the server: the app only gets what it shows.
             'tools' => collect(config('neurogpt.tools'))->only($activeTools)->map(fn ($t, $id) => [
                 'id' => $id, 'name' => $t['name'], 'hint' => $t['hint'], 'cost' => $t['cost'], 'icon' => $t['icon'] ?? 'wand',
@@ -55,8 +57,6 @@ class BootstrapController extends Controller
             'theme' => config('neurogpt.theme'),
             'features' => ['songs' => $songs],
             'payments' => $methods,
-            // rubles per star: the app recounts a price in Stars after a promo discount
-            'stars_rate' => (float) config('neurogpt.stars.rub_per_star'),
             'limits' => ['upload_mb' => (int) floor(config('neurogpt.upload_max_kb') / 1024)],
             'recent' => GenerationResource::collection(
                 $user->generations()->with('photoset')->whereIn('status', ['done', 'queued', 'processing'])->latest('id')->limit(12)->get()

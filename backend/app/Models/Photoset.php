@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
- * A photoset or a video set of the app (wa_photosets, `kind` = photo | video). When prompt_id points to a row of the bot table `prompts`, that row is
+ * A photoset of the app (wa_photosets). When prompt_id points to a row of the bot table `prompts`, that row is
  * the source of truth for the name, the prompt text, the "trend" flag and the position; edits in the admin
  * panel are written back to it. Description, cover and colors exist only in the app.
  */
@@ -17,7 +17,7 @@ class Photoset extends Model
     protected $table = 'wa_photosets';
 
     protected $fillable = [
-        'prompt_id', 'kind', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending',
+        'prompt_id', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending',
         'trend_hint', 'sort', 'is_active', 'edited_at',
     ];
 
@@ -109,17 +109,6 @@ class Photoset extends Model
         $example = $this->linked()?->photo_example;
 
         return $example && preg_match('#^https://#', $example) ? $example : null;
-    }
-
-    public function isVideo(): bool
-    {
-        return $this->kind === 'video';
-    }
-
-    /** The generation kind a set makes: a picture for photo sets, a video for video sets. */
-    public function generationKind(): string
-    {
-        return $this->isVideo() ? 'video' : 'image';
     }
 
     public function scopeActive($q)

@@ -35,9 +35,6 @@ class GenerationService
     {
         $kind = $data['kind'];
         $photoset = ! empty($data['photoset_id']) ? Photoset::active()->findOrFail($data['photoset_id']) : null;
-        if ($photoset && $kind !== $photoset->generationKind()) {
-            throw ValidationException::withMessages(['kind' => $photoset->isVideo() ? 'Видеосет создаёт видео' : 'Фотосет создаёт картинку']);
-        }
         $tool = $kind === 'tool' ? $data['tool'] : null;
         $toolCfg = $tool ? config("neurogpt.tools.$tool") : null;
 

@@ -2,16 +2,14 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\Bot\BotAdmin;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Throwable;
 
 /**
  * Runs after TelegramAuth. Admins are the owners hardcoded in neurogpt.admin_ids
- * plus the people an owner added in the panel (the "admins" setting) and the bot's own admins (bot table `admins`).
+ * plus the people an owner added in the panel (the "admins" setting).
  */
 class AdminOnly
 {
@@ -31,7 +29,7 @@ class AdminOnly
 
     public static function allowsId(int $telegramId): bool
     {
-        return in_array($telegramId, self::owners(), true) || in_array($telegramId, self::added(), true) || self::botAdmin($telegramId);
+        return in_array($telegramId, self::owners(), true) || in_array($telegramId, self::added(), true);
     }
 
     /** The main admin can manage the list of admins and cannot be removed from the code-defined list. */
@@ -50,17 +48,5 @@ class AdminOnly
     public static function added(): array
     {
         return array_values(array_map('intval', (array) config('neurogpt.admins')));
-    }
-
-    private static function botAdmin(int $telegramId): bool
-    {
-        if ($telegramId <= 0) {
-            return false;
-        }
-        try {
-            return BotAdmin::whereKey($telegramId)->exists();
-        } catch (Throwable) {
-            return false; // no `admins` table on this database
-        }
     }
 }

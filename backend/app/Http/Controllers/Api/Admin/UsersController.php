@@ -160,7 +160,7 @@ class UsersController extends Controller
         $this->period($gens, $f);
         $users = User::query();
         $this->period($users, $f);
-        $pays = Payment::query()->state('succeeded');
+        $pays = Payment::query()->where('status', 'succeeded');
         $this->period($pays, $f);
 
         $since = now()->subDays(13)->startOfDay();
@@ -184,9 +184,8 @@ class UsersController extends Controller
             ],
             'payments' => [
                 'count' => (clone $pays)->count(),
-                'by_currency' => (clone $pays)->selectRaw('total_valut as currency, sum(total) as total')->groupBy('total_valut')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
-                'tokens' => (int) (clone $pays)->join('shop', 'shop.id', '=', 'payments.item_id')
-                    ->where('shop.category', config('neurogpt.bot.shop.tokens_category'))->sum('shop.amount'),
+                'by_currency' => (clone $pays)->selectRaw('currency, sum(amount) as total')->groupBy('currency')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
+                'tokens' => (int) (clone $pays)->sum('tokens'),
             ],
             'series' => $series,
         ]);
@@ -196,10 +195,10 @@ class UsersController extends Controller
     {
         $tz = config('app.timezone');
         if (! empty($f['from'])) {
-            $q->where($q->qualifyColumn('created_at'), '>=', Carbon::parse($f['from'])->setTimezone($tz));
+            $q->where('created_at', '>=', Carbon::parse($f['from'])->setTimezone($tz));
         }
         if (! empty($f['to'])) {
-            $q->where($q->qualifyColumn('created_at'), '<=', Carbon::parse($f['to'])->setTimezone($tz));
+            $q->where('created_at', '<=', Carbon::parse($f['to'])->setTimezone($tz));
         }
     }
 

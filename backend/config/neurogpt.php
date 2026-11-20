@@ -22,13 +22,12 @@ return [
             'video' => env('BOT_DEFAULT_VIDEO_MODEL_ID'),
         ],
         // A paid purchase is also written to the bot table `payments` (was_bought = is_proceed = true) and users.paid_money.
+        'mirror_payments' => (bool) env('BOT_MIRROR_PAYMENTS', true),
         // Every generation and chat answer is also written to `query_logs`.
         'query_logs' => (bool) env('BOT_QUERY_LOGS', true),
         // How a purchase is found in the bot table `shop` (payments.item_id is required).
         'shop' => [
-            // shop.category of token packs (in the bot: "token", item tokens_300, tokens_800...)
-            'tokens_category' => env('BOT_SHOP_TOKENS_CATEGORY', 'token'),
-            // only for purchases made without a shop row (fallback packs from this config): the item of a new hidden row
+            'tokens_category' => env('BOT_SHOP_TOKENS_CATEGORY', 'tokens'),
             'tokens_item' => env('BOT_SHOP_TOKENS_ITEM', 'tokens'),
             'sub_category' => env('BOT_SHOP_SUB_CATEGORY', 'sub'),
             // shop.amount of a subscription: "days" (30 / 365) or "months" (1 / 12)
@@ -105,14 +104,14 @@ return [
     'bonus' => [
         'signup' => 50,
         'daily' => 5,
-        // Percent of every paid purchase of an invited person that goes to the inviter's users.ref_balance (rubles).
-        // Taken back when the payment is refunded.
-        'referral_percent' => (int) env('REFERRAL_PERCENT', 20),
+        'referral' => 50,
     ],
 
     'limits' => [
         // Generations one user may have queued or running at the same time.
         'active_generations' => (int) env('LIMIT_ACTIVE_GENERATIONS', 6),
+        // Referral rewards one inviter can collect in total (stops farming with throwaway accounts).
+        'referral_rewards' => (int) env('LIMIT_REFERRAL_REWARDS', 100),
         // Free "improve the prompt" calls per user per day.
         'improve_per_day' => (int) env('LIMIT_IMPROVE_PER_DAY', 30),
         // A generation still running after this many seconds is failed and refunded.

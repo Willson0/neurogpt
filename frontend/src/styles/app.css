@@ -556,7 +556,3 @@ svg { display: block; flex-shrink: 0; }
 .psetfile { max-width: 100%; min-width: 0; overflow: hidden; }
 .psetfile span { flex: 0 1 auto; white-space: nowrap; }
 .sheet h3, .sheet .lead { overflow-wrap: anywhere; }
-
-/* In-page back button on pushed screens, only where Telegram's own back arrow is missing (browser, old clients). */
-.screen-back { display: flex; padding: calc(var(--space-xs) + var(--sa-top)) max(var(--space-md), var(--sa-right)) 0; margin-bottom: calc(-1 * var(--sa-top)); position: relative; z-index: 2; }
-.screen-back button { border: 0; min-height: 40px; padding: 0 var(--space-sm) 0 var(--space-xs); border-radius: var(--radius-pill); display: inline-flex; align-items: center; gap: var(--space-2xs); color: var(--color-ink); font-size: var(--text-2); font-weight: 600; }

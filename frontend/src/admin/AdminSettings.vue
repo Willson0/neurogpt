@@ -8,6 +8,7 @@
         <div class="adm-grid wide">
           <label class="adm-f">Генераций одновременно у одного человека<input v-model.number="v.limits.active_generations" type="number" min="1" max="100" required></label>
           <label class="adm-f">Бесплатных улучшений промпта в день<input v-model.number="v.limits.improve_per_day" type="number" min="0" required></label>
+          <label class="adm-f">Наград за друзей на одного человека<input v-model.number="v.limits.referral_rewards" type="number" min="0" required></label>
           <label class="adm-f">Через сколько секунд зависшая генерация отменяется<input v-model.number="v.limits.generation_timeout" type="number" min="60" max="86400" required></label>
           <label class="adm-f">Максимальный размер фото, МБ (до 10)<input v-model.number="uploadMb" type="number" min="1" max="10" required></label>
         </div>
@@ -31,7 +32,7 @@
         <h3>Стили картинок</h3>
         <p class="adm-note">Текст стиля добавляется к промпту пользователя. У стиля «any» текста нет.</p>
         <div v-for="(s, i) in styles" :key="i" class="adm-line">
-          <label class="adm-f">Id<input v-model.trim="s.id" required pattern="[a-z0-9_\-]+" maxlength="32" :readonly="s.id === 'any' && s.locked"></label>
+          <label class="adm-f">Id<input v-model.trim="s.id" required pattern="[a-z0-9_-]+" maxlength="32" :readonly="s.id === 'any' && s.locked"></label>
           <label class="adm-f">Название<input v-model.trim="s.name" required maxlength="32"></label>
           <label class="adm-f" style="grid-column:span 2">Текст для модели<input v-model.trim="s.prompt" maxlength="1000" :disabled="s.id === 'any'"></label>
           <button v-if="!(s.id === 'any' && s.locked)" type="button" class="x" aria-label="Убрать стиль" @click="styles.splice(i, 1)"><svg class="ic-s" aria-hidden="true"><use href="#i-close" /></svg></button>

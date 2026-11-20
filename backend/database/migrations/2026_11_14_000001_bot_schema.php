@@ -68,7 +68,7 @@ return new class extends Migration
             $t->string('name', 100);
             $t->string('text_name', 100);
             $t->string('tag', 500);
-            $t->boolean('only_sub');
+            $t->json('allowed_subs')->nullable();
             $t->json('params');
             $t->dateTime('created_at', 6);
             $t->dateTime('modified_at', 6);
@@ -154,18 +154,19 @@ return new class extends Migration
             $t->integer('temp_tokens');
             $t->bigInteger('temp_tokens_until');
             $t->boolean('save_context');
+            $t->boolean('show_balance_alert');
             $t->string('sub', 12);
             $t->bigInteger('start_sub_time');
             $t->bigInteger('end_sub_time');
             $t->string('autocont_sub', 12);
             $t->integer('autocont_try')->nullable();
             $t->boolean('is_trial_sub');
+            $t->boolean('tried_free_smart');
             $t->boolean('auto_continue');
             $t->boolean('was_subed');
             $t->string('link', 100)->nullable();
             $t->bigInteger('referal_user_from')->nullable();
             $t->boolean('ref_paid');
-            $t->integer('ref_balance');
             $t->string('last_notif', 10)->nullable();
             $t->dateTime('last_activity_at', 6);
             $t->dateTime('created_at', 6);
@@ -198,11 +199,6 @@ return new class extends Migration
             $t->foreign('item_id')->references('id')->on('shop')->cascadeOnDelete();
             $t->foreign('recipient_id')->references('id')->on('users')->cascadeOnDelete();
             $t->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
-        });
-
-        $this->create('admins', function (Blueprint $t) {
-            $t->bigIncrements('id');
-            $t->string('username', 64);
         });
 
         $this->create('veo3_prompts', function (Blueprint $t) {

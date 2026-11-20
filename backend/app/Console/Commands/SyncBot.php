@@ -25,7 +25,7 @@ class SyncBot extends Command
     public function handle(BotSync $sync, Bot $bot): int
     {
         $created = $sync->pullCatalog();
-        $this->info("New from the bot: {$created['models']} models, {$created['photosets']} sets; refreshed models: {$created['updated']}; linked models missing in the bot: {$created['missing']}.");
+        $this->info("New from the bot: {$created['models']} models, {$created['photosets']} photosets.");
 
         $covers = 0;
         if (config('neurogpt.telegram.bot_token')) {

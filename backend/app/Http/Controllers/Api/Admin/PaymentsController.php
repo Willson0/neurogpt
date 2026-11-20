@@ -21,56 +21,46 @@ class PaymentsController extends Controller
     public function index(Request $request)
     {
         $f = $request->validate([
-            'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled', 'refunded'])],
+            'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled'])],
             'provider' => ['nullable', Rule::in(['yookassa', 'stars'])],
             'purpose' => ['nullable', Rule::in(['topup', 'plan'])],
             'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'],
             'user' => ['nullable', 'string', 'max:64'],
         ]);
 
-        // Every row of the bot table `payments`: the app's own and the ones the bot made.
         $q = Payment::query();
-        if (! empty($f['status'])) {
-            $q->state($f['status']);
-        }
-        if (! empty($f['provider'])) {
-            $q->provider($f['provider']);
-        }
-        if (! empty($f['purpose'])) {
-            $cat = config('neurogpt.bot.shop.'.($f['purpose'] === 'plan' ? 'sub_category' : 'tokens_category'));
-            $q->whereHas('item', fn ($i) => $i->where('category', $cat));
+        foreach (['status', 'provider', 'purpose'] as $key) {
+            if (! empty($f[$key])) {
+                $q->where($key, $f[$key]);
+            }
         }
         $tz = config('app.timezone');
         if (! empty($f['from'])) {
-            $q->where('payments.created_at', '>=', Carbon::parse($f['from'])->setTimezone($tz));
+            $q->where('wa_payments.created_at', '>=', Carbon::parse($f['from'])->setTimezone($tz));
         }
         if (! empty($f['to'])) {
-            $q->where('payments.created_at', '<=', Carbon::parse($f['to'])->setTimezone($tz));
+            $q->where('wa_payments.created_at', '<=', Carbon::parse($f['to'])->setTimezone($tz));
         }
         $term = trim((string) ($f['user'] ?? ''));
         if ($term !== '') {
-            // a payment number, a YooKassa payment id, a promo code, or a person
+            // a payment number, a YooKassa payment id, or a person
             $q->where(fn (Builder $w) => $w
-                ->where('payments.payment_id', $term)
-                ->when(ctype_digit($term), fn ($x) => $x->orWhere('payments.id', $term))
-                ->orWhereHas('details', fn ($d) => $d->where('promo_code', mb_strtoupper($term)))
+                ->where('provider_payment_id', $term)
+                ->when(ctype_digit($term), fn ($x) => $x->orWhere('wa_payments.id', $term))
                 ->orWhereHas('user', fn (Builder $u) => UsersController::search($u, $term)));
         }
 
-        $paid = (clone $q)->state('succeeded');
+        $paid = (clone $q)->where('status', 'succeeded');
         $summary = [
             'total' => (clone $q)->count(),
             'succeeded' => (clone $paid)->count(),
-            'pending' => (clone $q)->state('pending')->count(),
-            'canceled' => (clone $q)->state('canceled')->count(),
-            'by_currency' => (clone $paid)->selectRaw('total_valut as currency, sum(total) as total')->groupBy('total_valut')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
-            'rub' => (float) (clone $paid)->sum('rub_total'),
-            'tokens' => (int) (clone $paid)->join('shop', 'shop.id', '=', 'payments.item_id')
-                ->where('shop.category', config('neurogpt.bot.shop.tokens_category'))->sum('shop.amount'),
-            'payers' => (clone $paid)->distinct()->count('payments.user_id'),
-            'with_promo' => (clone $paid)->whereHas('details', fn ($d) => $d->whereNotNull('promo_id'))->count(),
+            'pending' => (clone $q)->where('status', 'pending')->count(),
+            'canceled' => (clone $q)->where('status', 'canceled')->count(),
+            'by_currency' => (clone $paid)->selectRaw('currency, sum(amount) as total')->groupBy('currency')->pluck('total', 'currency')->map(fn ($v) => (float) $v),
+            'tokens' => (int) (clone $paid)->sum('tokens'),
+            'payers' => (clone $paid)->distinct()->count('user_id'),
         ];
-        $page = $q->with(['user', 'details', 'item'])->latest('payments.id')->paginate(40);
+        $page = $q->with('user')->latest('id')->paginate(40);
 
         return response()->json([
             'data' => collect($page->items())->map(fn (Payment $p) => $this->payment($p)),
@@ -82,14 +72,13 @@ class PaymentsController extends Controller
     /** Asks YooKassa for the real status of a pending payment and applies it (credits tokens if it was paid). */
     public function sync(Payment $payment, PaymentService $payments)
     {
-        $payment->load('details');
         try {
             $payment = $payments->sync($payment);
         } catch (Throwable $e) {
             return response()->json(['message' => 'ЮKassa не ответила: проверьте настройки магазина'], 502);
         }
 
-        return response()->json(['data' => $this->payment($payment->load(['user', 'details', 'item']))]);
+        return response()->json(['data' => $this->payment($payment->load('user'))]);
     }
 
     // ---------- YooKassa settings ----------
@@ -186,31 +175,21 @@ class PaymentsController extends Controller
 
     private function payment(Payment $p): array
     {
-        $d = $p->details;
-        $raw = (array) ($d?->raw ?? []);
+        $raw = (array) $p->raw;
         $method = $raw['payment_method'] ?? [];
 
         return [
             'id' => $p->id, 'status' => $p->status, 'provider' => $p->provider, 'purpose' => $p->purpose, 'tokens' => $p->tokens,
-            'plan' => $p->plan, 'period' => $p->period, 'amount' => (float) $p->total, 'currency' => $p->currency,
-            'rub_amount' => (float) $p->rub_total, 'price' => (float) ($d?->price ?? $p->rub_total),
-            'promo' => $d?->promo_code, 'discount' => (int) ($d?->discount ?? 0),
-            'provider_payment_id' => $p->payment_id,
-            'cancel_reason' => $d?->cancel_reason,
-            // made by the bot itself (no app details): the app only shows it
-            'from_bot' => ! $d,
-            'item' => $p->item ? ['id' => $p->item->id, 'name' => $p->item->text_name] : null,
+            'plan' => $p->plan, 'period' => $p->period, 'amount' => (float) $p->amount, 'currency' => $p->currency,
+            'provider_payment_id' => $p->provider_payment_id,
+            'cancel_reason' => $p->cancel_reason,
             // how it was paid, as YooKassa reports it: "Bank card *4444", "SberPay", ...
             'method_title' => is_array($method) ? ($method['title'] ?? ($method['type'] ?? null)) : null,
             'income' => isset($raw['income_amount']['value']) ? (float) $raw['income_amount']['value'] : null,
             'test' => (bool) ($raw['test'] ?? false),
             'user' => $p->user ? ['id' => $p->user->id, 'telegram_id' => $p->user->telegram_id, 'name' => $p->user->displayName(), 'username' => $p->user->username] : null,
             'created_at' => $p->created_at?->toIso8601String(),
-            'credited_at' => $d?->credited_at?->toIso8601String(),
-            'shop_item_id' => $p->item_id,
-            // 20 % to the inviter (users.ref_balance) and what refunds took back
-            'referrer_id' => $d?->referrer_id, 'ref_amount' => (int) $d?->ref_amount, 'ref_reverted' => (int) $d?->ref_reverted,
-            'refunded_amount' => (float) $d?->refunded_amount,
+            'credited_at' => $p->credited_at?->toIso8601String(),
         ];
     }
 }

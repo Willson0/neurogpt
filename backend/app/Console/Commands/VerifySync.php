@@ -24,10 +24,10 @@ class VerifySync extends Command
     /** Columns of models.py (as Tortoise names them) the app reads or writes. */
     public const BOT_COLUMNS = [
         'users' => ['id', 'username', 'email', 'paid_money', 'is_premium', 'blocked_us', 'tokens', 'sub_tokens', 'temp_tokens',
-            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context',
-            'sub', 'start_sub_time', 'end_sub_time', 'autocont_sub', 'autocont_try', 'is_trial_sub', 'auto_continue',
-            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'ref_balance', 'last_notif', 'last_activity_at', 'created_at'],
-        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'only_sub', 'params', 'created_at', 'modified_at'],
+            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context', 'show_balance_alert',
+            'sub', 'start_sub_time', 'end_sub_time', 'autocont_sub', 'autocont_try', 'is_trial_sub', 'tried_free_smart', 'auto_continue',
+            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'last_notif', 'last_activity_at', 'created_at'],
+        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'allowed_subs', 'params', 'created_at', 'modified_at'],
         'prompts' => ['id', 'position', 'name', 'prompt', 'photo_example', 'model', 'trend'],
         'roles' => ['id', 'name', 'prompt'],
         'links' => ['id', 'name', 'hide', 'prompt_id_id', 'created_at', 'modified_at'],
@@ -41,7 +41,6 @@ class VerifySync extends Command
         'logs_table' => ['id', 'user_id', 'action', 'params', 'event_type', 'created_at', 'modified_at'],
         'veo3_prompts' => ['id', 'user_id', 'hash', 'status', 'model', 'task_id', 'prompts', 'tokens_used', 'created_at', 'modified_at'],
         'config' => ['id', 'category', 'name', 'value', 'created_at', 'modified_at'],
-        'admins' => ['id', 'username'],
     ];
 
     private int $errors = 0;
@@ -113,6 +112,7 @@ class VerifySync extends Command
         }
         foreach ([
             ['wa_user_profiles', 'user_id', 'profiles of people missing in users'],
+            ['wa_payments', 'user_id', 'payments of people missing in users'],
             ['wa_generations', 'user_id', 'generations of people missing in users'],
             ['wa_transactions', 'user_id', 'ledger rows of people missing in users'],
         ] as [$t, $c, $label]) {
@@ -123,19 +123,17 @@ class VerifySync extends Command
         $stale = DB::table('wa_models')->join('models', 'models.id', '=', 'wa_models.bot_model_id')->whereColumn('wa_models.price', '!=', 'models.price')->count();
         $stale ? $this->warn2("$stale linked models have an old local price copy (the bot price is used anyway; run neurogpt:sync-bot)") : $this->ok('linked model prices are in sync');
 
-        // payments: one bot row per app payment, with the same state
-        $lost = $orphans('wa_payment_details', 'payment_id', 'payments');
-        $lost ? $this->bad("$lost app payment details have no row in the bot table payments") : $this->ok('every app payment is a row of the bot table payments');
-        $bad = DB::table('wa_payment_details as d')->join('payments as p', 'p.id', '=', 'd.payment_id')
-            ->where(fn ($q) => $q
-                ->where(fn ($x) => $x->whereIn('d.status', ['succeeded', 'refunded'])->where('p.was_bought', false))
-                ->orWhere(fn ($x) => $x->where('d.status', 'pending')->where(fn ($y) => $y->where('p.is_proceed', true)->orWhere('p.was_bought', true)))
-                ->orWhere(fn ($x) => $x->where('d.status', 'canceled')->where(fn ($y) => $y->where('p.is_proceed', false)->orWhere('p.was_bought', true))))
-            ->count();
-        $bad ? $this->bad("$bad app payments have another state in the bot table (was_bought / is_proceed)") : $this->ok('payment states match the bot flags');
-        $usesLost = $orphans('wa_promo_uses', 'payment_id', 'payments');
-        $usesLost ? $this->warn2("$usesLost promo uses point to deleted payments") : $this->ok('promo uses → payments');
+        if (config('neurogpt.bot.mirror_payments')) {
+            $notMirrored = DB::table('wa_payments')->whereNotNull('credited_at')->whereNull('bot_payment_id')->count();
+            $notMirrored ? $this->bad("$notMirrored paid payments are not in the bot table payments") : $this->ok('every paid payment is in the bot table payments');
 
+            $bad = DB::table('wa_payments as w')->join('payments as p', 'p.id', '=', 'w.bot_payment_id')
+                ->where(fn ($q) => $q->whereColumn('p.user_id', '!=', 'w.user_id')->orWhereColumn('p.total_valut', '!=', 'w.currency')
+                    ->orWhereRaw('abs(p.total - w.amount) > 0.001')->orWhere('p.was_bought', false)->orWhere('p.is_proceed', false))
+                ->count();
+            $missing = $orphans('wa_payments', 'bot_payment_id', 'payments');
+            $bad || $missing ? $this->bad("bot payments differ from the app: $bad mismatched, $missing missing") : $this->ok('bot payments match the app payments (user, amount, currency, delivered)');
+        }
         if (config('neurogpt.bot.query_logs')) {
             $since = DB::table('wa_legacy_map')->max('created_at');
             $q = DB::table('wa_generations')->where('status', 'done')->whereNull('query_log_id');
@@ -182,7 +180,7 @@ class VerifySync extends Command
         }
 
         $tables = [
-            'users' => 'users', 'ai_models' => 'wa_models', 'photosets' => 'wa_photosets', 'news' => 'wa_news', 'payments' => 'payments',
+            'users' => 'users', 'ai_models' => 'wa_models', 'photosets' => 'wa_photosets', 'news' => 'wa_news', 'payments' => 'wa_payments',
             'generations' => 'wa_generations', 'chats' => 'wa_chats', 'chat_messages' => 'wa_chat_messages', 'transactions' => 'wa_transactions',
         ];
         foreach ($tables as $src => $dst) {
@@ -243,26 +241,15 @@ class VerifySync extends Command
 
             return null;
         });
-        $check('payments', 'payments', ['amount' => 'total', 'currency' => 'total_valut'], function ($o, $n) {
-            $d = DB::table('wa_payment_details')->where('payment_id', $n->id)->first();
-            if (! $d) {
-                return 'no wa_payment_details row';
-            }
-            foreach (['provider', 'idempotence_key', 'purpose', 'tokens', 'plan', 'status', 'credited_at'] as $f) {
-                if ($this->norm($o->{$f}) !== $this->norm($d->{$f})) {
-                    return "$f: «".$this->norm($o->{$f}).'» ≠ «'.$this->norm($d->{$f}).'»';
-                }
-            }
-
-            return ((bool) $o->credited_at) !== (bool) $n->was_bought ? 'was_bought does not match the old status' : null;
-        });
+        $check('payments', 'wa_payments', ['provider' => 'provider', 'provider_payment_id' => 'provider_payment_id', 'idempotence_key' => 'idempotence_key',
+            'purpose' => 'purpose', 'tokens' => 'tokens', 'plan' => 'plan', 'amount' => 'amount', 'currency' => 'currency', 'status' => 'status', 'credited_at' => 'credited_at']);
         $check('generations', 'wa_generations', ['kind' => 'kind', 'tool' => 'tool', 'prompt' => 'prompt', 'cost' => 'cost', 'status' => 'status',
             'result_path' => 'result_path', 'is_favorite' => 'is_favorite', 'created_at' => 'created_at']);
         $check('chat_messages', 'wa_chat_messages', ['role' => 'role', 'content' => 'content', 'cost' => 'cost', 'created_at' => 'created_at']);
         $check('transactions', 'wa_transactions', ['type' => 'type', 'amount' => 'amount', 'balance_after' => 'balance_after', 'title' => 'title', 'details' => 'details', 'created_at' => 'created_at']);
 
         // owners: the person of every copied row is the same Telegram id
-        foreach (['payments' => 'payments', 'generations' => 'wa_generations', 'transactions' => 'wa_transactions'] as $src => $dst) {
+        foreach (['payments' => 'wa_payments', 'generations' => 'wa_generations', 'transactions' => 'wa_transactions'] as $src => $dst) {
             $oldOwner = $old->table($src)->join('users', 'users.id', '=', "$src.user_id")->pluck('users.telegram_id', "$src.id");
             $wrong = 0;
             DB::table('wa_legacy_map as m')->join($dst, "$dst.id", '=', 'm.target_id')->where('m.source_table', $src)

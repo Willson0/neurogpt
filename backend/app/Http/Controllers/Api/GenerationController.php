@@ -9,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\GenerationResource;
 use App\Http\Resources\UserResource;
 use App\Models\Generation;
-use App\Models\Photoset;
 use App\Services\Generation\GenerationService;
 use App\Services\Generation\PromptService;
 use Illuminate\Http\Request;
@@ -77,15 +76,11 @@ class GenerationController extends Controller
         if ($needsPrompt && trim((string) ($data['prompt'] ?? '')) === '') {
             return response()->json(['message' => 'Prompt is required', 'errors' => ['prompt' => ['Напишите запрос']]], 422);
         }
-        $set = ! empty($data['photoset_id']) ? Photoset::find($data['photoset_id']) : null;
-        // A photo set needs the user's photo; for a video set the photo is optional (it becomes the first frame).
-        if (($isTool || ($set && ! $set->isVideo())) && ! $request->hasFile('file') && empty($data['source_generation_id'])) {
+        if (($isTool || ! empty($data['photoset_id'])) && ! $request->hasFile('file') && empty($data['source_generation_id'])) {
             return response()->json(['message' => 'Photo is required', 'errors' => ['file' => ['Сначала выберите фото']]], 422);
         }
-        if ($set && $data['kind'] !== $set->generationKind()) {
-            return $set->isVideo()
-                ? response()->json(['message' => 'Video sets make videos', 'errors' => ['kind' => ['Видеосет создаёт видео']]], 422)
-                : response()->json(['message' => 'Photosets are images', 'errors' => ['kind' => ['Фотосет создаёт картинку']]], 422);
+        if (! empty($data['photoset_id']) && $data['kind'] !== 'image') {
+            return response()->json(['message' => 'Photosets are images', 'errors' => ['kind' => ['Фотосет создаёт картинку']]], 422);
         }
         // A reference picture makes sense for images and as the first frame of a video only.
         $file = in_array($data['kind'], ['image', 'video', 'tool'], true) ? $request->file('file') : null;

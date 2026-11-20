@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
  * The bot keeps three counters. Spending takes temp_tokens first (while temp_tokens_until has not passed), then
  * sub_tokens (while the subscription is active), then tokens. Purchases and bonuses go to tokens, subscription
  * tokens to sub_tokens. A refund puts tokens back where they were taken from (into `tokens` once the
- * temporary or subscription ones have expired). Only the changed counters are written, as relative SQL updates.
+ * temporary or subscription ones have expired). Only the changed columns are written.
  */
 class Wallet
 {
@@ -92,13 +92,10 @@ class Wallet
             $locked = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
             $changes = array_filter($plan($locked), fn ($v) => $v !== 0);
 
-            // `tokens = tokens + n` in SQL (like F() in Tortoise): only the changed counters are touched, so a bot write
-            // to other columns of the same row is never lost, and the row lock keeps two app writes in order.
-            if ($changes) {
-                User::query()->whereKey($locked->id)->incrementEach($changes);
-                $locked->setRawAttributes(array_merge($locked->getAttributes(),
-                    (array) User::query()->whereKey($locked->id)->toBase()->first(self::BUCKETS)), true);
+            foreach ($changes as $bucket => $delta) {
+                $locked->forceFill([$bucket => (int) $locked->{$bucket} + $delta]);
             }
+            $locked->save();
 
             // The caller's object shows the new balance right away.
             foreach (self::BUCKETS as $bucket) {

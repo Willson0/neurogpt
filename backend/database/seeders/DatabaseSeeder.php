@@ -177,7 +177,7 @@ class DatabaseSeeder extends Seeder
             $bot = BotModel::create([
                 'type' => BotModel::typeOf($m->kind), 'can_image' => $m->kind !== 'text', 'price' => $m->price,
                 'name' => Str::limit((string) ($m->provider_model ?: $m->slug), 100, ''), 'text_name' => Str::limit($m->name, 100, ''),
-                'tag' => $m->slug, 'only_sub' => BotModel::onlySubFor($m->min_plan), 'params' => (object) [],
+                'tag' => $m->slug, 'allowed_subs' => BotModel::subsFor($m->min_plan), 'params' => (object) [],
             ]);
             $m->forceFill(['bot_model_id' => $bot->id])->saveQuietly();
         }

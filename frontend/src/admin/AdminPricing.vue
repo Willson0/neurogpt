@@ -5,7 +5,6 @@
     <template v-else>
       <form class="adm-card glass" @submit.prevent="save(['packs'], 'Пакеты сохранены')">
         <h3>Пакеты токенов</h3>
-        <span class="adm-note">Если в таблице бота shop есть активные товары категории token, приложение продаёт их, а эти пакеты не показываются.</span>
         <div v-for="(p, i) in v.packs" :key="i" class="adm-line">
           <label class="adm-f">Токенов<input v-model.number="p.tokens" type="number" min="1" required></label>
           <label class="adm-f">Цена, ₽<input v-model.number="p.price" type="number" min="1" step="any" required></label>
@@ -18,7 +17,6 @@
 
       <form class="adm-card glass" @submit.prevent="save(['plans'], 'Тарифы сохранены')">
         <h3>Подписки</h3>
-        <span class="adm-note">Цена и срок подписки берутся из товаров shop категории sub (item = plus или pro), если они есть. Токены в месяц всегда отсюда.</span>
         <div v-for="id in ['plus', 'pro']" :key="id" class="adm-sub">
           <span class="ctl-label">Тариф {{ id }}</span>
           <div class="adm-grid">
@@ -33,16 +31,24 @@
       </form>
 
       <form class="adm-card glass" @submit.prevent="save(['bonus'], 'Бонусы сохранены')">
-        <h3>Бонусы</h3>
+        <h3>Бонусы, токенов</h3>
         <div class="adm-grid">
           <label class="adm-f">За регистрацию<input v-model.number="v.bonus.signup" type="number" min="0" required></label>
           <label class="adm-f">Ежедневный<input v-model.number="v.bonus.daily" type="number" min="0" required></label>
-          <label class="adm-f">Рефоводу с покупок друга, %<input v-model.number="v.bonus.referral_percent" type="number" min="0" max="100" required></label>
+          <label class="adm-f">За приглашённого друга<input v-model.number="v.bonus.referral" type="number" min="0" required></label>
         </div>
         <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
       </form>
 
-      <p class="adm-note">Курс Telegram Stars, промокоды и ссылки на оплату товаров: раздел «Платежи и ЮKassa».</p>
+      <form class="adm-card glass" @submit.prevent="save(['stars'], 'Сохранено')">
+        <h3>Telegram Stars</h3>
+        <div class="adm-grid">
+          <label class="adm-check"><input v-model="v.stars.enabled" type="checkbox">Принимать оплату звёздами</label>
+          <label class="adm-f">Рублей за одну звезду<input v-model.number="v.stars.rub_per_star" type="number" min="0.1" step="0.01" required></label>
+        </div>
+        <p class="adm-note">Цена в звёздах считается из рублёвой: рубли делятся на курс и округляются вверх.</p>
+        <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
+      </form>
     </template>
   </section>
 </template>

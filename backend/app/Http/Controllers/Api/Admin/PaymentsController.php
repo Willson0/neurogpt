@@ -22,13 +22,13 @@ class PaymentsController extends Controller
     {
         $f = $request->validate([
             'status' => ['nullable', Rule::in(['pending', 'succeeded', 'canceled'])],
-            'provider' => ['nullable', Rule::in(['yookassa', 'stars'])],
-            'purpose' => ['nullable', Rule::in(['topup', 'plan'])],
+            'provider' => ['nullable', Rule::in(['yookassa', 'stars', 'bot'])],
+            'purpose' => ['nullable', Rule::in(['topup', 'plan', 'other'])],
             'from' => ['nullable', 'date'], 'to' => ['nullable', 'date'],
             'user' => ['nullable', 'string', 'max:64'],
         ]);
 
-        $q = Payment::query();
+        $q = Payment::overview();
         foreach (['status', 'provider', 'purpose'] as $key) {
             if (! empty($f[$key])) {
                 $q->where($key, $f[$key]);
@@ -60,7 +60,7 @@ class PaymentsController extends Controller
             'tokens' => (int) (clone $paid)->sum('tokens'),
             'payers' => (clone $paid)->distinct()->count('user_id'),
         ];
-        $page = $q->with('user')->latest('id')->paginate(40);
+        $page = $q->with('user')->latest('created_at')->orderByDesc('id')->orderBy('source')->paginate(40);
 
         return response()->json([
             'data' => collect($page->items())->map(fn (Payment $p) => $this->payment($p)),
@@ -179,8 +179,10 @@ class PaymentsController extends Controller
         $method = $raw['payment_method'] ?? [];
 
         return [
-            'id' => $p->id, 'status' => $p->status, 'provider' => $p->provider, 'purpose' => $p->purpose, 'tokens' => $p->tokens,
-            'plan' => $p->plan, 'period' => $p->period, 'amount' => (float) $p->amount, 'currency' => $p->currency,
+            'id' => $p->source === 'bot' ? 'bot-'.$p->id : $p->id, 'status' => $p->status,
+            'provider' => $p->provider, 'purpose' => $p->purpose, 'tokens' => $p->tokens, 'item_name' => $p->item_name,
+            'plan' => $p->plan, 'plan_name' => $p->plan_name, 'plan_days' => $p->plan_days,
+            'period' => $p->period, 'amount' => (float) $p->amount, 'currency' => $p->currency,
             'provider_payment_id' => $p->provider_payment_id,
             'cancel_reason' => $p->cancel_reason,
             // how it was paid, as YooKassa reports it: "Bank card *4444", "SberPay", ...

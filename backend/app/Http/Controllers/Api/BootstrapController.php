@@ -9,6 +9,7 @@ use App\Models\AiModel;
 use App\Models\News;
 use App\Models\Photoset;
 use App\Services\Payments\PaymentService;
+use App\Services\Payments\SubscriptionCatalog;
 use Illuminate\Http\Request;
 
 class BootstrapController extends Controller
@@ -18,7 +19,6 @@ class BootstrapController extends Controller
     {
         $user = $request->user();
         $methods = PaymentService::methods();
-        $stars = fn ($rub) => PaymentService::stars($rub);
         $songs = (bool) config('neurogpt.features.songs');
 
         $models = AiModel::active()->whereIn('kind', $songs ? ['image', 'video', 'song'] : ['image', 'video'])->get()
@@ -29,23 +29,25 @@ class BootstrapController extends Controller
             'user' => new UserResource($user),
             'models' => $models->groupBy('kind')->map(fn ($list) => $list->map(fn (AiModel $m) => [
                 'id' => $m->slug, 'name' => $m->name, 'hint' => $m->hint, 'price' => $m->price,
-                'badge' => $m->badge, 'fast' => $m->is_fast, 'min_plan' => $m->min_plan,
+                'badge' => $m->badge, 'fast' => $m->is_fast, 'min_plan' => $m->min_plan, 'is_sub' => $m->min_plan !== 'free',
+                'bot_model' => $m->bot_model_id !== null,
                 ...($m->kind === 'video' ? [
                     'formats' => $m->formats(),
                     'durations' => collect($m->durations())->map(fn ($mult, $sec) => ['seconds' => (int) $sec, 'price' => (int) ceil($m->price * $mult)])->values(),
                 ] : []),
             ])->values()),
+            'selected_models' => [
+                'image' => $models->first(fn (AiModel $model) => $model->kind === 'image' && $model->bot_model_id === (int) $user->photo_model_id)?->slug,
+                'video' => $models->first(fn (AiModel $model) => $model->kind === 'video' && $model->bot_model_id === (int) $user->video_model_id)?->slug,
+            ],
             'photosets' => Photoset::active()->get()->map(fn ($p) => [
                 'id' => $p->id, 'name' => $p->name, 'description' => $p->description,
                 'cover_url' => $p->cover_url, 'seed' => $p->seed, 'palette' => $p->palette,
                 'trending' => $p->is_trending, 'trend_hint' => $p->trend_hint,
             ])->values(),
             'news' => News::visible()->get(['id', 'title', 'subtitle', 'sticker', 'style', 'action']),
-            'packs' => collect(config('neurogpt.packs'))->map(fn ($p) => $p + ['stars' => $stars($p['price'])])->values(),
-            'plans' => collect(config('neurogpt.plans'))->map(fn ($p) => $p + [
-                'stars_month' => $p['month'] ? $stars($p['month']) : 0,
-                'stars_year' => $p['year_month'] ? $stars($p['year_month'] * 12) : 0,
-            ]),
+            'packs' => PaymentService::tokenOffers(),
+            'subscription_offers' => SubscriptionCatalog::offers(),
             // Prompts and provider settings stay on the server: the app only gets what it shows.
             'tools' => collect(config('neurogpt.tools'))->only($activeTools)->map(fn ($t, $id) => [
                 'id' => $id, 'name' => $t['name'], 'hint' => $t['hint'], 'cost' => $t['cost'], 'icon' => $t['icon'] ?? 'wand',

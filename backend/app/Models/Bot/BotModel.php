@@ -16,11 +16,11 @@ class BotModel extends Model
 
     protected $guarded = ['id'];
 
-    protected $attributes = ['can_image' => false, 'price' => 0, 'tag' => '', 'params' => '{}'];
+    protected $attributes = ['can_image' => false, 'price' => 0, 'tag' => '', 'only_sub' => false, 'params' => '{}'];
 
     protected function casts(): array
     {
-        return ['can_image' => 'boolean', 'price' => 'integer', 'allowed_subs' => 'array', 'params' => 'array'];
+        return ['can_image' => 'boolean', 'price' => 'integer', 'only_sub' => 'boolean', 'params' => 'array'];
     }
 
     /** App kind of a bot type and back. */
@@ -31,25 +31,8 @@ class BotModel extends Model
         return array_search($kind, self::KINDS, true) ?: null;
     }
 
-    /** allowed_subs: null = everybody, otherwise the list of subscriptions. The app keeps the lowest one. */
     public function minPlan(): string
     {
-        $subs = $this->allowed_subs;
-        if (! is_array($subs) || $subs === [] || in_array('free', $subs, true)) {
-            return 'free';
-        }
-        $rank = ['free' => 0, 'plus' => 1, 'pro' => 2];
-        usort($subs, fn ($a, $b) => ($rank[$a] ?? 9) <=> ($rank[$b] ?? 9));
-
-        return (string) $subs[0];
-    }
-
-    public static function subsFor(string $minPlan): ?array
-    {
-        return match ($minPlan) {
-            'plus' => ['plus', 'pro'],
-            'pro' => ['pro'],
-            default => null,
-        };
+        return $this->only_sub ? 'sub' : 'free';
     }
 }

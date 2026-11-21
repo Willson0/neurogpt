@@ -1,5 +1,7 @@
 <template>
   <div class="view" data-view="topup">
+    <p v-if="!app.packs.length" class="banner glass">Сейчас нет доступных пакетов токенов.</p>
+    <template v-else>
     <div class="calc">
       <div class="tgs-wrap" :style="{ transform: `scale(${0.85 + app.packIndex * 0.08})`, transition: 'transform 400ms var(--ease-pop)' }"><TgsPlayer name="token" :size="140" /></div>
       <div class="amount num"><Odometer :value="app.pack.tokens" /> токенов<small>Токены не сгорают</small></div>
@@ -13,13 +15,14 @@
       <label for="calcRange" class="visually-hidden">Сколько токенов</label>
       <input id="calcRange" type="range" min="0" :max="app.packs.length - 1" step="1" :value="app.packIndex" :style="{ '--fill': fill }" @input="onRange">
       <div class="ticks">
-        <button v-for="(p, k) in app.packs" :key="p.tokens" type="button" :aria-pressed="String(k === app.packIndex)" @click="set(k)">{{ fmt(p.tokens) }}</button>
+        <button v-for="(p, k) in app.packs" :key="p.id" type="button" :aria-pressed="String(k === app.packIndex)" @click="set(k)">{{ fmt(p.tokens) }}</button>
       </div>
     </div>
     <div class="group" style="display:grid;gap:var(--space-sm)">
       <div class="sec-head"><h2>Способ оплаты</h2><span class="sum num">{{ app.priceLabel(app.pack.price, app.pack.stars) }}</span></div>
       <PayMethod />
     </div>
+    </template>
     <div v-if="app.payment && app.payment.purpose === 'topup'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
       <span>Ждём подтверждения оплаты</span>
@@ -43,8 +46,8 @@ export default {
   computed: {
     app() { return useApp() },
     fill() { return `${(this.app.packIndex / Math.max(1, this.app.packs.length - 1)) * 100}%` },
-    imgs() { return Math.floor(this.app.pack.tokens / (this.app.models.image[0]?.price || 8)) },
-    vids() { return Math.floor(this.app.pack.tokens / (this.app.models.video.find((m) => m.badge === 'Советуем')?.price || this.app.models.video[0]?.price || 40)) },
+    imgs() { return this.app.pack.photo ?? Math.floor(this.app.pack.tokens / (this.app.models.image[0]?.price || 8)) },
+    vids() { return this.app.pack.video ?? Math.floor(this.app.pack.tokens / (this.app.models.video.find((m) => m.badge === 'Советуем')?.price || this.app.models.video[0]?.price || 40)) },
   },
   methods: {
     fmt, plural,

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AiModel;
 use App\Services\Admin\Settings;
+use App\Services\Payments\PaymentService;
+use App\Services\Payments\SubscriptionCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -65,6 +67,8 @@ class SettingsController extends Controller
         $all = Settings::all();
         unset($all['deleted'], $all['admins'], $all['yookassa']);
         $all['theme'] = ['dark' => (object) ($all['theme']['dark'] ?? []), 'light' => (object) ($all['theme']['light'] ?? [])];
+        $all['subscription_offers'] = SubscriptionCatalog::offers();
+        $all['packs'] = PaymentService::tokenOffers();
 
         return $all;
     }
@@ -79,20 +83,6 @@ class SettingsController extends Controller
         }
 
         return [
-            'packs' => [
-                'v' => ['required', 'array', 'min:1', 'max:12'],
-                'v.*.tokens' => ['required', 'integer', 'between:1,10000000', 'distinct'],
-                'v.*.price' => ['required', 'numeric', 'between:1,10000000'],
-                'v.*.badge' => ['nullable', 'string', 'max:24'],
-            ],
-            'plans' => [
-                'v' => ['required', 'array:free,plus,pro'],
-                'v.plus' => ['required', 'array'], 'v.pro' => ['required', 'array'],
-                'v.*.name' => ['required', 'string', 'max:24'],
-                'v.*.month' => ['required', 'numeric', 'between:0,10000000'],
-                'v.*.year_month' => ['required', 'numeric', 'between:0,10000000'],
-                'v.*.tokens' => ['required', 'integer', 'between:0,100000000'],
-            ],
             'bonus' => [
                 'v' => ['required', 'array:signup,daily,referral'],
                 'v.*' => ['integer', 'between:0,1000000'],
@@ -128,12 +118,6 @@ class SettingsController extends Controller
     private function normalize(string $key, mixed $value): mixed
     {
         return match ($key) {
-            'packs' => collect($value)->sortBy('tokens')->map(fn ($p) => array_filter([
-                'tokens' => (int) $p['tokens'], 'price' => $p['price'] + 0, 'badge' => $p['badge'] ?? null,
-            ], fn ($v) => $v !== null && $v !== ''))->values()->all(),
-            'plans' => collect(['free' => ['name' => 'Free', 'month' => 0, 'year_month' => 0, 'tokens' => 0]] + $value)
-                ->only(['free', 'plus', 'pro'])
-                ->map(fn ($p) => ['name' => $p['name'], 'month' => $p['month'] + 0, 'year_month' => $p['year_month'] + 0, 'tokens' => (int) $p['tokens']])->all(),
             'bonus', 'limits' => array_map('intval', $value),
             'features' => ['songs' => (bool) ($value['songs'] ?? false)],
             'stars' => array_filter([

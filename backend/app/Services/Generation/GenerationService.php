@@ -38,7 +38,7 @@ class GenerationService
         $tool = $kind === 'tool' ? $data['tool'] : null;
         $toolCfg = $tool ? config("neurogpt.tools.$tool") : null;
 
-        $model = $this->model($kind, $tool, $data['model'] ?? null);
+        $model = $this->model($user, $kind, $tool, $data['model'] ?? null);
         if (! $user->canUse($model)) {
             throw new ModelLocked($model->min_plan);
         }
@@ -106,8 +106,7 @@ class GenerationService
             throw $e;
         }
 
-        // Pro subscribers go through their own queue first ("priority in the queue").
-        $queue = $user->activePlan() === 'pro' ? 'high' : 'default';
+        $queue = $user->hasActivePlan() ? 'high' : 'default';
         foreach ($created as $g) {
             RunGeneration::dispatch($g->id)->onQueue($queue);
         }
@@ -115,7 +114,7 @@ class GenerationService
         return $created;
     }
 
-    private function model(string $kind, ?string $tool, ?string $slug): AiModel
+    private function model(User $user, string $kind, ?string $tool, ?string $slug): AiModel
     {
         if ($kind === 'tool') {
             return AiModel::active()->where('kind', 'tool')->where('slug', $tool)->firstOrFail();
@@ -123,12 +122,23 @@ class GenerationService
 
         $list = AiModel::active()->where('kind', $kind)->get();
 
+        if (! $slug || $slug === 'auto') {
+            $preferred = match ($kind) {
+                'image' => $user->photo_model_id,
+                'video' => $user->video_model_id,
+                default => null,
+            };
+            if ($preferred && ($model = $list->firstWhere('bot_model_id', $preferred)) && $user->canUse($model)) {
+                return $model;
+            }
+        }
+
         $found = $list->firstWhere('slug', $slug ?: 'auto');
         if (! $found && $slug && $slug !== 'auto') {
             abort(404, 'Unknown model');
         }
 
-        // "auto" (or nothing) means the first model of the catalog.
+        // Fall back to the web catalog when the bot's choice has no active web mapping.
         return $found ?? $list->firstOrFail();
     }
 

@@ -69,7 +69,6 @@ export const section = {
 
 export const KINDS = { image: 'Картинки', video: 'Видео', tool: 'Инструменты', song: 'Песни', photoset: 'Фотосеты' }
 export const STATUSES = { queued: 'В очереди', processing: 'В работе', done: 'Готово', failed: 'Ошибка', cancelled: 'Отменено' }
-export const PLANS = { free: 'Free', plus: 'Plus', pro: 'Pro' }
 export const DRIVERS = { openai: 'OpenAI-совместимый API', kie: 'kie.ai', replicate: 'Replicate', fake: 'Заглушка (без сети)', unavailable: 'Недоступна' }
 /** Model options as editable rows and back. */
 export const toPairs = (obj, skip = []) => Object.entries(obj || {}).filter(([k]) => !skip.includes(k)).map(([key, value]) => ({ key, value: String(value) }))

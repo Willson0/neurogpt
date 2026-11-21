@@ -21,7 +21,7 @@
             <label v-if="!m.id" class="adm-f">Id (латиницей)<input v-model.trim="f.slug" required pattern="[a-z0-9_-]+" maxlength="32" placeholder="my-model"></label>
             <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="64"></label>
             <label class="adm-f">Цена, токенов<input v-model.number="f.price" type="number" min="0" required></label>
-            <label class="adm-f">Доступна с тарифа<select v-model="f.min_plan"><option v-for="(n, k) in plans" :key="k" :value="k">{{ n }}</option></select></label>
+            <label class="adm-f">Доступ<select v-model="f.min_plan"><option v-for="(n, k) in plans" :key="k" :value="k">{{ n }}</option></select></label>
             <label class="adm-f">Плашка<input v-model.trim="f.badge" maxlength="32" placeholder="Советуем"></label>
             <label class="adm-f">Порядок<input v-model.number="f.sort" type="number" min="0"></label>
             <label class="adm-f full">Подсказка под названием<input v-model.trim="f.hint" maxlength="255"></label>
@@ -70,7 +70,7 @@
 
 <script>
 import { adminApi } from '../services/api'
-import { section, PLANS, DRIVERS, toPairs, fromPairs } from './shared'
+import { section, DRIVERS, toPairs, fromPairs } from './shared'
 
 export default {
   name: 'AdminModels',
@@ -84,7 +84,7 @@ export default {
       text: 'Модели чата в боте. Цена списывается за ответ.',
       song: 'Цена за один запрос Suno со всеми вариантами. Вкладка «Песня» включается в разделе «Настройки».',
     },
-    plans: PLANS, driverNames: DRIVERS, drivers: [], ratios: ['16:9', '9:16', '1:1'],
+    plans: { free: 'Всем', sub: 'Любая подписка' }, driverNames: DRIVERS, drivers: [], ratios: ['16:9', '9:16', '1:1'],
     kind: 'image', models: [], edit: null, f: {}, confirming: false,
   }),
   computed: { list() { return this.models.filter((m) => m.kind === this.kind) } },

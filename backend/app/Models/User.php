@@ -47,7 +47,6 @@ class User extends Authenticatable
             'temp_tokens' => 'integer',
             'temp_tokens_until' => 'integer',
             'save_context' => 'boolean',
-            'show_balance_alert' => 'boolean',
             'start_sub_time' => 'integer',
             'end_sub_time' => 'integer',
             'is_trial_sub' => 'boolean',
@@ -56,6 +55,7 @@ class User extends Authenticatable
             'was_subed' => 'boolean',
             'referal_user_from' => 'integer',
             'ref_paid' => 'boolean',
+            'ref_balance' => 'integer',
             'last_activity_at' => 'datetime',
             'created_at' => 'datetime',
         ];
@@ -72,11 +72,11 @@ class User extends Authenticatable
         return [
             'username' => null, 'email' => null, 'paid_money' => 0.0, 'is_premium' => false, 'blocked_us' => false,
             'tokens' => 0, 'sub_tokens' => 0, 'temp_tokens' => 0, 'temp_tokens_until' => 0,
-            'save_context' => true, 'show_balance_alert' => false,
+            'save_context' => true,
             'sub' => 'free', 'start_sub_time' => 0, 'end_sub_time' => 0,
             'autocont_sub' => 'free', 'autocont_try' => null, 'is_trial_sub' => false,
             'tried_free_smart' => false, 'auto_continue' => true, 'last_payment_method_id' => null,
-            'was_subed' => false, 'link' => null, 'referal_user_from' => null, 'ref_paid' => false,
+            'was_subed' => false, 'link' => null, 'referal_user_from' => null, 'ref_paid' => false, 'ref_balance' => 0,
             'last_notif' => null, 'last_activity_at' => $now, 'created_at' => $now,
             'text_role_id' => null,
         ];
@@ -258,7 +258,7 @@ class User extends Authenticatable
 
     public function scopeSubscribed(Builder $q): Builder
     {
-        return $q->where('sub', '!=', 'free')->where('end_sub_time', '>', BotTime::now());
+        return $q->whereNotIn('sub', ['', 'free'])->where('end_sub_time', '>', BotTime::now());
     }
 
     public function scopeBlocked(Builder $q): Builder
@@ -268,9 +268,7 @@ class User extends Authenticatable
 
     public function canUse(AiModel $model): bool
     {
-        $rank = ['free' => 0, 'plus' => 1, 'pro' => 2];
-
-        return ($rank[$this->activePlan()] ?? 0) >= ($rank[$model->min_plan] ?? 0);
+        return $model->min_plan === 'free' || $this->hasActivePlan();
     }
 
     /** https://t.me/<bot>?start=friend_<telegram id>, or null until the bot username is configured. */

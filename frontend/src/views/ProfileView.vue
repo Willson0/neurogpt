@@ -68,7 +68,7 @@ export default {
     u() { return this.app.user || {} },
     planLine() {
       const u = this.u
-      if (!u.plan || u.plan === 'free' || !u.plan_expires_at) return 'Тариф Free'
+      if (!u.plan_expires_at) return this.app.planName
       return `${this.app.planName}, до ${new Date(u.plan_expires_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}`
     },
   },

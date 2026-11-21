@@ -10,7 +10,7 @@
           <div class="row">
             <span :class="['sq', t.type === 'topup' || t.type === 'subscription' ? 'hot' : '']"><svg class="ic-s" aria-hidden="true"><use :href="'#i-' + icon(t)" /></svg></span>
             <span class="t"><b>{{ t.title }}</b><span v-if="t.details">{{ t.details }}</span></span>
-            <span :class="['amt', 'num', t.amount > 0 ? 'plus' : '']">{{ t.amount > 0 ? '+' : '−' }}{{ Math.abs(t.amount) }}</span>
+            <span v-if="t.amount !== 0" :class="['amt', 'num', t.amount > 0 ? 'plus' : '']">{{ t.amount > 0 ? '+' : '−' }}{{ Math.abs(t.amount) }}</span>
           </div>
         </li>
       </ul>

@@ -2,13 +2,14 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
  * Tables of the Telegram bot (its models.py, Tortoise ORM). They belong to the bot.
  *
- * On the shared database they already exist and this migration does NOTHING to them: every table is created
- * only when it is missing (a fresh local database, tests). Existing tables are never altered or dropped,
+ * On MySQL the developer's bot schema must already exist. SQLite gets local and test fixtures.
+ * Existing tables are never altered or dropped,
  * and down() is empty on purpose.
  *
  * Column names and types repeat what Tortoise generates for MySQL (`generate_schemas`), including the
@@ -26,6 +27,21 @@ return new class extends Migration
                 .'DB_* in .env must point to the bot database; the old web app database goes to LEGACY_DB_* for neurogpt:import-legacy.'
             );
         }
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            foreach (['admins', 'config', 'shop', 'users', 'models', 'payments', 'prompts', 'query_logs', 'roles'] as $table) {
+                if (! Schema::hasTable($table)) {
+                    throw new RuntimeException("Bot table `$table` is missing. Install the developer's bot schema before starting the web app.");
+                }
+            }
+
+            return;
+        }
+
+        $this->create('admins', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->string('username', 64);
+        });
 
         $this->create('config', function (Blueprint $t) {
             $t->bigIncrements('id');
@@ -68,7 +84,7 @@ return new class extends Migration
             $t->string('name', 100);
             $t->string('text_name', 100);
             $t->string('tag', 500);
-            $t->json('allowed_subs')->nullable();
+            $t->boolean('only_sub')->nullable()->default(false);
             $t->json('params');
             $t->dateTime('created_at', 6);
             $t->dateTime('modified_at', 6);
@@ -154,7 +170,6 @@ return new class extends Migration
             $t->integer('temp_tokens');
             $t->bigInteger('temp_tokens_until');
             $t->boolean('save_context');
-            $t->boolean('show_balance_alert');
             $t->string('sub', 12);
             $t->bigInteger('start_sub_time');
             $t->bigInteger('end_sub_time');
@@ -167,6 +182,7 @@ return new class extends Migration
             $t->string('link', 100)->nullable();
             $t->bigInteger('referal_user_from')->nullable();
             $t->boolean('ref_paid');
+            $t->integer('ref_balance');
             $t->string('last_notif', 10)->nullable();
             $t->dateTime('last_activity_at', 6);
             $t->dateTime('created_at', 6);

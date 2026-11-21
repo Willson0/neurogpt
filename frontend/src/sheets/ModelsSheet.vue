@@ -6,7 +6,7 @@
       <button type="button" class="row" role="radio" :aria-checked="String(m.id === selected)" @click="app.selectModel(kind, m)">
         <span class="radio-mark"><svg aria-hidden="true"><use href="#i-tick" /></svg></span>
         <span class="t">
-          <b>{{ m.name }}<span v-if="m.badge" :class="['badge', m.badge === 'Советуем' ? 'hot' : '']">{{ m.badge }}</span><span v-if="locked(m)" class="badge hot">{{ m.min_plan === 'pro' ? 'Pro' : 'Plus' }}</span></b>
+          <b>{{ m.name }}<span v-if="m.badge" :class="['badge', m.badge === 'Советуем' ? 'hot' : '']">{{ m.badge }}</span><span v-if="locked(m)" class="badge hot">Подписка</span></b>
           <span>{{ m.hint }}</span>
         </span>
         <span class="end">

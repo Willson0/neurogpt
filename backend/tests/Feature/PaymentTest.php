@@ -2,10 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Bot\BotPayment;
+use App\Models\Bot\ShopItem;
 use App\Models\Payment;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PaymentTest extends TestCase
@@ -14,6 +19,12 @@ class PaymentTest extends TestCase
     {
         parent::setUp();
         config(['neurogpt.yookassa.shop_id' => 'shop', 'neurogpt.yookassa.secret_key' => 'secret', 'neurogpt.stars.rub_per_star' => 2.0]);
+        foreach ([100 => 100, 500 => 450] as $tokens => $price) {
+            ShopItem::create([
+                'active' => true, 'text_name' => "$tokens токенов", 'category' => 'token',
+                'item' => "tokens_$tokens", 'amount' => $tokens, 'price' => $price,
+            ]);
+        }
     }
 
     private function hook(array $update, string $secret = 'whsecret')
@@ -29,12 +40,37 @@ class PaymentTest extends TestCase
         ]);
     }
 
+    public function test_subscription_migration_resumes_with_existing_payment_columns(): void
+    {
+        $this->fakeTelegram();
+        $user = $this->user(1);
+        $payment = Payment::create([
+            'user_id' => $user->id, 'provider' => 'stars', 'purpose' => 'plan', 'plan' => 'club',
+            'amount' => 375, 'currency' => 'XTR', 'status' => 'pending', 'idempotence_key' => (string) Str::uuid(),
+            'shop_item_id' => 8, 'plan_days' => 30,
+        ]);
+        Schema::table('wa_payments', fn (Blueprint $table) => $table->dropColumn('plan_name'));
+
+        $migration = require database_path('migrations/2026_11_22_000002_use_shop_subscription_offers.php');
+        $migration->up();
+        $payment->refresh()->update(['plan_name' => 'Клуб']);
+        $migration->up();
+
+        $payment->refresh();
+        $this->assertSame([8, 30, 'Клуб'], [$payment->shop_item_id, $payment->plan_days, $payment->plan_name]);
+    }
+
     public function test_stars_topup_from_invoice_to_tokens(): void
     {
         $this->fakeTelegram();
         $user = $this->user(1, 0);
 
-        $res = $this->as(1)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'stars'])->assertCreated()
+        $offer = ShopItem::tokenOffers()->where('amount', 500)->firstOrFail();
+        $this->as(1)->postJson('/api/payments/topup', ['offer_id' => $offer->id, 'expected_price' => 451, 'method' => 'stars'])
+            ->assertUnprocessable()->assertJsonPath('code', 'token_offer_changed');
+        $res = $this->as(1)->postJson('/api/payments/topup', [
+            'offer_id' => $offer->id, 'tokens' => 500, 'expected_price' => 450, 'method' => 'stars',
+        ])->assertCreated()
             ->assertJsonPath('data.method', 'stars')->assertJsonPath('data.currency', 'XTR')
             ->assertJsonPath('data.amount', 225)->assertJsonPath('data.confirmation_url', 'https://t.me/$invoice123');
         $payment = Payment::find($res->json('data.id'));
@@ -52,6 +88,7 @@ class PaymentTest extends TestCase
         $this->hook($paid)->assertOk(); // Telegram may deliver the same update twice
         $this->assertSame(500, $user->refresh()->balance);
         $this->assertSame('succeeded', $payment->refresh()->status);
+        $this->assertSame($payment->shop_item_id, (int) BotPayment::findOrFail($payment->bot_payment_id)->item_id);
         $this->as(1)->getJson('/api/payments/'.$payment->id)->assertJsonPath('data.status', 'succeeded')->assertJsonPath('user.balance', 500);
 
         // A paid invoice cannot be paid again.
@@ -64,7 +101,8 @@ class PaymentTest extends TestCase
         $this->fakeTelegram();
         $this->user(1, 0);
         $this->user(2, 0);
-        $payment = Payment::find($this->as(1)->postJson('/api/payments/plan', ['plan' => 'pro', 'period' => 'month', 'method' => 'stars'])->json('data.id'));
+        ShopItem::create(['active' => true, 'text_name' => 'Мастерская', 'category' => 'sub', 'item' => 'studio', 'amount' => 30, 'price' => 1980]);
+        $payment = Payment::find($this->as(1)->postJson('/api/payments/plan', ['plan' => 'studio', 'period' => 'month', 'method' => 'stars'])->assertCreated()->json('data.id'));
         $payload = 'pay:'.$payment->id.':'.$payment->idempotence_key;
         $refused = fn (string $id) => Http::assertSent(fn ($r) => str_contains($r->url(), 'answerPreCheckoutQuery') && $r['pre_checkout_query_id'] === $id && $r['ok'] === false);
 
@@ -91,22 +129,46 @@ class PaymentTest extends TestCase
         $this->assertSame(0, User::find(1)->balance);
     }
 
-    public function test_stars_subscription_activates_the_plan(): void
+    public function test_subscription_purchases_use_the_shop_price_and_preserve_the_invoiced_duration(): void
     {
         $this->fakeTelegram();
-        $user = $this->user(1, 0);
-        $payment = Payment::find($this->as(1)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'year', 'method' => 'stars'])->assertJsonPath('data.amount', 3240)->json('data.id'));
-        $this->hook(['message' => ['from' => ['id' => 1], 'chat' => ['id' => 1, 'type' => 'private'], 'successful_payment' => [
-            'currency' => 'XTR', 'total_amount' => 3240, 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_2',
-        ]]]);
-        $user->refresh();
-        $this->assertSame('plus', $user->activePlan());
-        $this->assertSame(12000, $user->balance);
-        $this->assertTrue($user->plan_expires_at->isAfter(now()->addMonths(11)));
+        $user = $this->user(1, 0, 'existing');
+        $until = $user->plan_expires_at->copy()->addDays(45);
+        $offer = ShopItem::create([
+            'active' => true, 'text_name' => 'Клуб', 'category' => 'sub', 'item' => 'club',
+            'amount' => 45, 'price' => 749, 'description' => 'Доступ к моделям', 'tag' => 'Выгодно',
+        ]);
+        ShopItem::create(['active' => false, 'text_name' => 'Бесплатный', 'category' => 'sub', 'item' => 'free', 'amount' => 0, 'price' => 0]);
+        $hidden = ShopItem::create(['active' => false, 'text_name' => 'Архив', 'category' => 'sub', 'item' => 'old', 'amount' => 30, 'price' => 100]);
+        ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 249]);
 
-        // A cheaper plan cannot replace a higher active one.
-        $user->setPlan('pro', now()->addMonth())->save();
-        $this->as(1)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->assertStatus(422)->assertJsonPath('code', 'plan_downgrade');
+        $this->as(1)->getJson('/api/bootstrap')->assertJsonCount(1, 'subscription_offers')
+            ->assertJsonPath('subscription_offers.0.id', $offer->id)->assertJsonPath('subscription_offers.0.name', 'Клуб')
+            ->assertJsonPath('subscription_offers.0.description', 'Доступ к моделям')->assertJsonPath('subscription_offers.0.days', 45)
+            ->assertJsonPath('subscription_offers.0.price', 749)->assertJsonPath('subscription_offers.0.stars', 375);
+        $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $hidden->id, 'method' => 'stars'])->assertUnprocessable();
+        $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $offer->id, 'expected_days' => 30, 'method' => 'stars'])
+            ->assertUnprocessable()->assertJsonPath('code', 'subscription_offer_changed');
+        $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $offer->id, 'expected_price' => 700, 'method' => 'stars'])
+            ->assertUnprocessable()->assertJsonPath('code', 'subscription_offer_changed');
+        $this->assertSame(0, Payment::count());
+
+        $payment = Payment::findOrFail($this->as(1)->postJson('/api/payments/plan', [
+            'offer_id' => $offer->id, 'expected_price' => 749, 'expected_days' => 45, 'method' => 'stars',
+        ])->assertCreated()->assertJsonPath('data.amount', 375)->assertJsonPath('data.plan_days', 45)
+            ->assertJsonPath('data.plan_name', 'Клуб')->json('data.id'));
+        $offer->update(['active' => false, 'amount' => 60, 'price' => 1000]);
+        $paid = ['message' => ['from' => ['id' => 1], 'chat' => ['id' => 1, 'type' => 'private'], 'successful_payment' => [
+            'currency' => 'XTR', 'total_amount' => 375, 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_2',
+        ]]];
+        $this->hook($paid)->assertOk();
+        $this->hook($paid)->assertOk();
+        $user->refresh();
+        $this->assertSame('club', $user->activePlan());
+        $this->assertSame(0, $user->balance);
+        $this->assertTrue($until->equalTo($user->plan_expires_at));
+        $this->assertSame($offer->id, (int) BotPayment::firstOrFail()->item_id);
+        $this->as(1)->getJson('/api/me')->assertJsonPath('plan_name', 'Клуб');
     }
 
     public function test_yookassa_credits_only_a_verified_full_payment(): void

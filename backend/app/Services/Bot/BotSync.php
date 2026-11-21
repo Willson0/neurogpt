@@ -57,7 +57,7 @@ class BotSync
      */
     public function mirrorPayment(Payment $payment): ?BotPayment
     {
-        if (! config('neurogpt.bot.mirror_payments') || $payment->bot_payment_id || ! $payment->credited_at) {
+        if ($payment->bot_payment_id || ! $payment->credited_at) {
             return null;
         }
 
@@ -86,14 +86,24 @@ class BotSync
      */
     public function shopItem(Payment $payment): ShopItem
     {
+        if ($payment->shop_item_id && ($offer = ShopItem::find($payment->shop_item_id))) {
+            return $offer;
+        }
+
         $cfg = config('neurogpt.bot.shop');
         if ($payment->purpose === 'topup') {
+            $existing = ShopItem::whereIn('category', [$cfg['tokens_category'], 'token', 'tokens'])
+                ->where('amount', $payment->tokens)->orderByDesc('active')->orderBy('id')->first();
+            if ($existing) {
+                return $existing;
+            }
             $attrs = ['category' => $cfg['tokens_category'], 'item' => $cfg['tokens_item'], 'amount' => (int) $payment->tokens];
             $name = "{$payment->tokens} токенов";
         } else {
-            $days = $payment->period === 'year' ? 365 : 30;
-            $attrs = ['category' => $cfg['sub_category'], 'item' => (string) $payment->plan, 'amount' => $cfg['sub_amount'] === 'months' ? ($days === 365 ? 12 : 1) : $days];
-            $name = 'Подписка '.config("neurogpt.plans.{$payment->plan}.name", $payment->plan).($days === 365 ? ', год' : ', месяц');
+            $days = $payment->plan_days ?? ($payment->period === 'year' ? 365 : 30);
+            $amount = $payment->plan_days ?? ($cfg['sub_amount'] === 'months' ? ($days === 365 ? 12 : 1) : $days);
+            $attrs = ['category' => $cfg['sub_category'], 'item' => (string) $payment->plan, 'amount' => $amount];
+            $name = "Подписка {$payment->subscriptionName()}, {$days} дн.";
         }
 
         return ShopItem::where($attrs)->orderByDesc('active')->orderBy('id')->first()
@@ -108,9 +118,6 @@ class BotSync
     /** One request in the bot table `query_logs`. Never breaks the caller. */
     public function logQuery(int $userId, string $model, string $type, int $tokens, string $prompt, ?string $answer = null): ?int
     {
-        if (! config('neurogpt.bot.query_logs')) {
-            return null;
-        }
         try {
             return QueryLog::create([
                 'user_id' => $userId, 'model' => Str::limit($model, 150, ''), 'type' => Str::limit($type, 50, ''),

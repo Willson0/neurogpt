@@ -23,11 +23,12 @@ class VerifySync extends Command
 
     /** Columns of models.py (as Tortoise names them) the app reads or writes. */
     public const BOT_COLUMNS = [
+        'admins' => ['id', 'username'],
         'users' => ['id', 'username', 'email', 'paid_money', 'is_premium', 'blocked_us', 'tokens', 'sub_tokens', 'temp_tokens',
-            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context', 'show_balance_alert',
+            'temp_tokens_until', 'text_model_id', 'text_role_id', 'photo_model_id', 'video_model_id', 'save_context',
             'sub', 'start_sub_time', 'end_sub_time', 'autocont_sub', 'autocont_try', 'is_trial_sub', 'tried_free_smart', 'auto_continue',
-            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'last_notif', 'last_activity_at', 'created_at'],
-        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'allowed_subs', 'params', 'created_at', 'modified_at'],
+            'last_payment_method_id', 'was_subed', 'link', 'referal_user_from', 'ref_paid', 'ref_balance', 'last_notif', 'last_activity_at', 'created_at'],
+        'models' => ['id', 'type', 'can_image', 'price', 'name', 'text_name', 'tag', 'only_sub', 'params', 'created_at', 'modified_at'],
         'prompts' => ['id', 'position', 'name', 'prompt', 'photo_example', 'model', 'trend'],
         'roles' => ['id', 'name', 'prompt'],
         'links' => ['id', 'name', 'hide', 'prompt_id_id', 'created_at', 'modified_at'],
@@ -123,25 +124,22 @@ class VerifySync extends Command
         $stale = DB::table('wa_models')->join('models', 'models.id', '=', 'wa_models.bot_model_id')->whereColumn('wa_models.price', '!=', 'models.price')->count();
         $stale ? $this->warn2("$stale linked models have an old local price copy (the bot price is used anyway; run neurogpt:sync-bot)") : $this->ok('linked model prices are in sync');
 
-        if (config('neurogpt.bot.mirror_payments')) {
-            $notMirrored = DB::table('wa_payments')->whereNotNull('credited_at')->whereNull('bot_payment_id')->count();
-            $notMirrored ? $this->bad("$notMirrored paid payments are not in the bot table payments") : $this->ok('every paid payment is in the bot table payments');
+        $notMirrored = DB::table('wa_payments')->whereNotNull('credited_at')->whereNull('bot_payment_id')->count();
+        $notMirrored ? $this->bad("$notMirrored paid payments are not in the bot table payments") : $this->ok('every paid payment is in the bot table payments');
 
-            $bad = DB::table('wa_payments as w')->join('payments as p', 'p.id', '=', 'w.bot_payment_id')
-                ->where(fn ($q) => $q->whereColumn('p.user_id', '!=', 'w.user_id')->orWhereColumn('p.total_valut', '!=', 'w.currency')
-                    ->orWhereRaw('abs(p.total - w.amount) > 0.001')->orWhere('p.was_bought', false)->orWhere('p.is_proceed', false))
-                ->count();
-            $missing = $orphans('wa_payments', 'bot_payment_id', 'payments');
-            $bad || $missing ? $this->bad("bot payments differ from the app: $bad mismatched, $missing missing") : $this->ok('bot payments match the app payments (user, amount, currency, delivered)');
+        $bad = DB::table('wa_payments as w')->join('payments as p', 'p.id', '=', 'w.bot_payment_id')
+            ->where(fn ($q) => $q->whereColumn('p.user_id', '!=', 'w.user_id')->orWhereColumn('p.total_valut', '!=', 'w.currency')
+                ->orWhereRaw('abs(p.total - w.amount) > 0.001')->orWhere('p.was_bought', false)->orWhere('p.is_proceed', false))
+            ->count();
+        $missing = $orphans('wa_payments', 'bot_payment_id', 'payments');
+        $bad || $missing ? $this->bad("bot payments differ from the app: $bad mismatched, $missing missing") : $this->ok('bot payments match the app payments (user, amount, currency, delivered)');
+
+        $since = DB::table('wa_legacy_map')->max('created_at');
+        $q = DB::table('wa_generations')->where('status', 'done')->whereNull('query_log_id');
+        if ($since) {
+            $q->where('created_at', '>', $since); // imported history was never logged
         }
-        if (config('neurogpt.bot.query_logs')) {
-            $since = DB::table('wa_legacy_map')->max('created_at');
-            $q = DB::table('wa_generations')->where('status', 'done')->whereNull('query_log_id');
-            if ($since) {
-                $q->where('created_at', '>', $since); // imported history was never logged
-            }
-            ($n = $q->count()) ? $this->warn2("$n finished generations are not in query_logs") : $this->ok('finished generations are in query_logs');
-        }
+        ($n = $q->count()) ? $this->warn2("$n finished generations are not in query_logs") : $this->ok('finished generations are in query_logs');
     }
 
     private function ledger(): void

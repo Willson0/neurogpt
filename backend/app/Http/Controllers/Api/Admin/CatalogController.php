@@ -12,7 +12,9 @@ use App\Models\Photoset;
 use App\Services\Admin\Settings;
 use App\Services\Generation\GenerationService;
 use App\Services\Generation\ImageNormalizer;
+use App\Services\Payments\SubscriptionCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -32,7 +34,7 @@ class CatalogController extends Controller
         return response()->json([
             'data' => AiModel::whereIn('kind', self::KINDS)->orderBy('kind')->orderBy('sort')->orderBy('id')->get()->map(fn ($m) => $this->model($m)),
             'drivers' => self::DRIVERS,
-            'plans' => array_keys(config('neurogpt.plans')),
+            'plans' => ['free', 'sub'],
         ]);
     }
 
@@ -52,7 +54,13 @@ class CatalogController extends Controller
     public function updateModel(Request $request, AiModel $model)
     {
         abort_unless(in_array($model->kind, self::KINDS, true), 404);
-        $model->update($this->modelData($request, false) + ['edited_at' => now()]);
+        $data = $this->modelData($request, false);
+        DB::transaction(function () use ($model, $data) {
+            if ($model->bot && in_array($model->kind, ['text', 'image'], true) && ! empty($data['provider_model'])) {
+                $model->bot->name = Str::limit($data['provider_model'], 100, '');
+            }
+            $model->update($data + ['edited_at' => now()]);
+        });
 
         return response()->json(['data' => $this->model($model)]);
     }
@@ -80,7 +88,7 @@ class CatalogController extends Controller
             'price' => [$creating ? 'required' : 'sometimes', 'integer', 'between:0,1000000'],
             'badge' => ['sometimes', 'nullable', 'string', 'max:32'],
             'is_fast' => ['sometimes', 'boolean'],
-            'min_plan' => ['sometimes', Rule::in(array_keys(config('neurogpt.plans')))],
+            'min_plan' => ['sometimes', Rule::in(['sub', ...array_keys(SubscriptionCatalog::names())])],
             'driver' => ['sometimes', Rule::in(self::DRIVERS)],
             'provider_model' => ['sometimes', 'nullable', 'string', 'max:255'],
             'options' => ['sometimes', 'nullable', 'array'],
@@ -132,7 +140,7 @@ class CatalogController extends Controller
     {
         return [
             'id' => $m->id, 'kind' => $m->kind, 'slug' => $m->slug, 'name' => $m->name, 'hint' => $m->hint, 'price' => $m->price,
-            'badge' => $m->badge, 'is_fast' => $m->is_fast, 'min_plan' => $m->min_plan, 'driver' => $m->driver,
+            'badge' => $m->badge, 'is_fast' => $m->is_fast, 'min_plan' => $m->min_plan, 'is_sub' => $m->min_plan !== 'free', 'driver' => $m->driver,
             'provider_model' => $m->provider_model, 'options' => $m->options ?: (object) [], 'sort' => $m->sort,
             'is_active' => $m->is_active, 'edited' => $m->edited_at !== null,
             // Linked to the bot table `models`: name, price and plan are the bot's and are saved there.

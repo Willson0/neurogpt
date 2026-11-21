@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\AiModel;
 use App\Models\Photoset;
+use App\Services\Payments\SubscriptionCatalog;
 use App\Services\Telegram\Bot;
 use Illuminate\Console\Command;
 
@@ -20,9 +21,11 @@ class TelegramLinks extends Command
             ['home', 'Главная'], ['gallery', 'Фотосеты'], ['profile', 'Профиль'], ['history', 'История операций'],
             ['image', 'Фото'], ['video', 'Видео'], ['tools', 'Ещё (инструменты)'], ['models', 'Выбор модели'],
             ['invite', 'Пригласить друга'], ['topup', 'Пополнить токены'], ['plans', 'Подписки'],
-            ['plans-plus', 'Подписка Plus'], ['plans-pro', 'Подписка Pro'], ['plans-pro-year', 'Pro на год'],
             ['admin', 'Админка'], ['admin-payments', 'Админка: платежи'],
         ];
+        foreach (SubscriptionCatalog::offers() as $offer) {
+            $screens[] = ["plans-{$offer['id']}", "Подписка {$offer['name']}, {$offer['days']} дн."];
+        }
         foreach (['image' => 'Фото: ', 'video' => 'Видео: '] as $kind => $label) {
             foreach (AiModel::active()->where('kind', $kind)->get() as $m) {
                 $screens[] = ["{$kind}-{$m->slug}", $label.$m->name];

@@ -19,7 +19,7 @@ import { openAdmin } from '../stores/app'
  *   tool-<id>                                   a tool sheet (upscale, remove_bg, animate ...)
  *   photoset-<id>                               a photoset (number from the admin panel)
  *   topup | topup-<tokens>                      buying tokens, optionally with a pack chosen
- *   plans | plans-<plus|pro> | plans-pro-year   subscriptions
+ *   plans | plans-<shop item id>               subscriptions
  *   result-<id>                                 one generation of this user
  *   admin | admin-<section>                     admin panel (admins only): dashboard, content, models, tools, showcase,
  *                                               pricing, settings, payments, theme, users
@@ -92,8 +92,6 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
       const m = (app.models[screen] || []).find((x) => x.id === arg)
       if (!m) return true
       if (app.isLocked(m)) {
-        // the model needs a plan: show the plans with the right tier, like a tap on a locked model does
-        app.tier = m.min_plan === 'plus' ? 'plus' : 'pro'
         app.stack = ['home', 'plans']
         app.toast('Модель доступна по подписке')
       } else {
@@ -134,11 +132,12 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
     }
     case 'plans': {
       home()
-      const parts = arg.toLowerCase().split('-')
-      const tier = parts.find((x) => ['plus', 'pro'].includes(x))
-      if (tier) app.tier = tier
-      if (parts.includes('year')) app.period = 'year'
-      if (parts.includes('month')) app.period = 'month'
+      const offers = app.subscriptionOffers
+      const old = /^(.*)-(month|year)$/.exec(arg)
+      const offer = offers.find((item) => String(item.id) === arg)
+        || offers.find((item) => item.plan === arg)
+        || (old && offers.find((item) => item.plan === old[1] && item.days === (old[2] === 'year' ? 365 : 30)))
+      app.subscriptionOfferId = offer?.id ?? null
       app.stack = ['home', 'plans']
       return true
     }

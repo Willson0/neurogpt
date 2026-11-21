@@ -22,12 +22,9 @@ return [
             'video' => env('BOT_DEFAULT_VIDEO_MODEL_ID'),
         ],
         // A paid purchase is also written to the bot table `payments` (was_bought = is_proceed = true) and users.paid_money.
-        'mirror_payments' => (bool) env('BOT_MIRROR_PAYMENTS', true),
-        // Every generation and chat answer is also written to `query_logs`.
-        'query_logs' => (bool) env('BOT_QUERY_LOGS', true),
         // How a purchase is found in the bot table `shop` (payments.item_id is required).
         'shop' => [
-            'tokens_category' => env('BOT_SHOP_TOKENS_CATEGORY', 'tokens'),
+            'tokens_category' => env('BOT_SHOP_TOKENS_CATEGORY', 'token'),
             'tokens_item' => env('BOT_SHOP_TOKENS_ITEM', 'tokens'),
             'sub_category' => env('BOT_SHOP_SUB_CATEGORY', 'sub'),
             // shop.amount of a subscription: "days" (30 / 365) or "months" (1 / 12)
@@ -37,8 +34,6 @@ return [
 
     // Main admins: always have access and manage the list of other admins. Checked on the server for every /api/admin request.
     'admin_ids' => [1337592809],
-    // Admins added by the main admin in the panel (stored in the settings table).
-    'admins' => [],
 
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
@@ -84,21 +79,6 @@ return [
             'tax_system_code' => (int) env('YOOKASSA_TAX_SYSTEM', 1),
             'vat_code' => (int) env('YOOKASSA_VAT_CODE', 1),
         ],
-    ],
-
-    // Token packs (price in rubles; the Stars price is computed from it).
-    'packs' => [
-        ['tokens' => 100, 'price' => 100],
-        ['tokens' => 500, 'price' => 450, 'badge' => 'Популярный'],
-        ['tokens' => 1500, 'price' => 1200, 'badge' => 'Выгодно'],
-        ['tokens' => 5000, 'price' => 3600, 'badge' => 'Максимум'],
-    ],
-
-    // Subscription plans: monthly price, price per month on a yearly plan, tokens per month.
-    'plans' => [
-        'free' => ['name' => 'Free', 'month' => 0, 'year_month' => 0, 'tokens' => 0],
-        'plus' => ['name' => 'Plus', 'month' => 780, 'year_month' => 540, 'tokens' => 1000],
-        'pro' => ['name' => 'Pro', 'month' => 1980, 'year_month' => 1380, 'tokens' => 3000],
     ],
 
     'bonus' => [
@@ -170,17 +150,17 @@ return [
         ],
         'veo-fast' => [
             'name' => 'Veo 3.1 Fast', 'hint' => 'Точнее движение и детали, 720p', 'price' => 80,
-            'min_plan' => 'plus', 'provider_model' => 'veo-3-1', 'family' => 'veo', 'tier' => 'veo3_fast',
+            'min_plan' => 'sub', 'provider_model' => 'veo-3-1', 'family' => 'veo', 'tier' => 'veo3_fast',
             'durations' => [8 => 1], 'formats' => ['16:9', '9:16'], 'resolution' => '720p',
         ],
         'kling' => [
             'name' => 'Kling 3.0', 'hint' => 'Живая камера и звук, до 10 секунд', 'price' => 110,
-            'min_plan' => 'plus', 'provider_model' => 'kling-3.0/video', 'family' => 'kling', 'mode' => 'std',
+            'min_plan' => 'sub', 'provider_model' => 'kling-3.0/video', 'family' => 'kling', 'mode' => 'std',
             'durations' => [5 => 1, 10 => 2], 'formats' => ['16:9', '9:16', '1:1'],
         ],
         'veo' => [
             'name' => 'Veo 3.1 Quality', 'hint' => 'Максимальное качество, 1080p', 'price' => 250, 'badge' => 'Топ',
-            'min_plan' => 'pro', 'provider_model' => 'veo-3-1', 'family' => 'veo', 'tier' => 'veo3',
+            'min_plan' => 'sub', 'provider_model' => 'veo-3-1', 'family' => 'veo', 'tier' => 'veo3',
             'durations' => [8 => 1], 'formats' => ['16:9', '9:16'], 'resolution' => '1080p',
         ],
     ],

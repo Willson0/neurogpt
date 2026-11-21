@@ -44,7 +44,7 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
-        $emptyBot = BotModel::query()->count() === 0;
+        $emptyBot = BotModel::query()->getConnection()->getDriverName() === 'sqlite' && ! BotModel::query()->exists();
 
         $driver = config('neurogpt.providers.default');
         $kieDriver = config('neurogpt.providers.kie_driver');
@@ -57,13 +57,13 @@ class DatabaseSeeder extends Seeder
                 ['auto', 'Авто', 'Сама выберет лучшую модель', 1, 'Советуем', true, 'free', $text],
                 ['fast', 'Быстрая', 'Короткие ответы за секунду', 1, null, true, 'free', $text],
                 ['smart', 'Умная', 'Сложные задачи, код, анализ', 3, null, false, 'free', $text],
-                ['long', 'Документы', 'Читает PDF и длинные тексты', 5, null, false, 'plus', $text],
+                ['long', 'Документы', 'Читает PDF и длинные тексты', 5, null, false, 'sub', $text],
             ],
             'image' => [
                 ['auto', 'Авто', 'Хороший результат для любой идеи', 8, 'Советуем', true, 'free', $image],
                 ['quick', 'Быстрая', 'Черновик, чтобы проверить идею', 4, null, true, 'free', $image],
                 ['detail', 'Детальная', 'Мелкие детали и текст на картинке', 12, null, false, 'free', $image],
-                ['photo', 'Фотореализм', 'Как настоящая фотография', 16, 'Plus', false, 'plus', $image],
+                ['photo', 'Фотореализм', 'Как настоящая фотография', 16, null, false, 'sub', $image],
             ],
         ];
         foreach ($models as $kind => $list) {
@@ -94,7 +94,7 @@ class DatabaseSeeder extends Seeder
         foreach ([
             ['auto', 'Авто', 'Сама выберет лучшую модель', 30, 'Советуем', false, 'free'],
             ['quick', 'Быстрая', 'Набросок мелодии за минуту', 20, null, true, 'free'],
-            ['studio', 'Студия', 'Богаче звук и аранжировка', 50, null, false, 'plus'],
+            ['studio', 'Студия', 'Богаче звук и аранжировка', 50, null, false, 'sub'],
         ] as $i => [$slug, $name, $hint, $price, $badge, $fast, $min]) {
             $this->sync(AiModel::class, ['kind' => 'song', 'slug' => $slug], [
                 'name' => $name, 'hint' => $hint, 'price' => $price, 'badge' => $badge, 'is_fast' => $fast, 'min_plan' => $min,
@@ -190,7 +190,7 @@ class DatabaseSeeder extends Seeder
             $bot = BotModel::create([
                 'type' => BotModel::typeOf($m->kind), 'can_image' => $m->kind !== 'text', 'price' => $m->price,
                 'name' => Str::limit((string) ($m->provider_model ?: $m->slug), 100, ''), 'text_name' => Str::limit($m->name, 100, ''),
-                'tag' => $m->slug, 'allowed_subs' => BotModel::subsFor($m->min_plan), 'params' => (object) [],
+                'tag' => $m->badge ?? '', 'only_sub' => $m->min_plan !== 'free', 'params' => (object) [],
             ]);
             $m->forceFill(['bot_model_id' => $bot->id])->saveQuietly();
         }

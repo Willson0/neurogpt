@@ -1,32 +1,34 @@
 <template>
   <div class="view" data-view="plans">
-    <LensBar :active="app.period" label="Период">
-      <button type="button" role="tab" :aria-selected="String(app.period === 'month')" @click="app.period = 'month'">Месяц</button>
-      <button type="button" role="tab" :aria-selected="String(app.period === 'year')" @click="app.period = 'year'">Год, −30%</button>
-    </LensBar>
+    <h1>Подписка</h1>
+    <div class="plan-current glass">
+      <b>{{ app.planName }}</b>
+      <span v-if="expiresAt">Действует до {{ expiresAt }}</span>
+    </div>
 
-    <div class="holo-wrap">
-      <div ref="holo" :class="['holo', 't-' + app.tier]" :style="tilt" @pointermove="onMove" @pointerleave="tilt = {}">
-        <div :key="app.tier + app.period" class="swap-in">
-          <div class="top"><span class="name">{{ info.name }}</span><Sticker :name="meta.sticker" :size="64" :glow="app.tier !== 'free'" glow-color="--gold-hi" :sparkle="app.tier === 'pro'" /></div>
+    <div v-if="offer" class="holo-wrap">
+      <div ref="holo" class="holo" :style="tilt" @pointermove="onMove" @pointerleave="tilt = {}">
+        <div :key="offer.id" class="swap-in">
+          <div class="top"><span class="name">{{ offer.name }}</span><Sticker name="crown" :size="64" glow glow-color="--gold-hi" /></div>
         </div>
         <div class="bottom-l">
-          <span v-if="info.month" class="price-l">{{ monthly }}<small>в месяц{{ app.period === 'year' ? ', при оплате за год' : '' }}</small></span>
-          <span v-else class="price-l">Бесплатно<small>навсегда</small></span>
-          <span class="line">{{ line }}<template v-if="app.plan === app.tier"><br>ваш тариф</template></span>
+          <span class="price-l">{{ price }}<small>за {{ offer.days }} {{ daysLabel(offer.days) }}</small></span>
+          <span v-if="offer.tag" class="line">{{ offer.tag }}</span>
         </div>
       </div>
     </div>
 
-    <LensBar :active="app.tier" label="Тариф">
-      <button v-for="t in tiers" :key="t" type="button" role="tab" :aria-selected="String(app.tier === t)" @click="app.tier = t; tgHaptic()">{{ app.plans[t] ? app.plans[t].name : t }}</button>
-    </LensBar>
-
-    <ul class="feat glass">
-      <li v-for="(f, k) in meta.feats" :key="app.tier + k" :style="{ '--i': k }"><svg aria-hidden="true"><use href="#i-check" /></svg>{{ f }}</li>
-    </ul>
-
-    <PayMethod v-if="app.tier !== 'free'" />
+    <label v-if="app.subscriptionOffers.length > 1" class="plan-choice glass">
+      Срок и тариф
+      <select :value="offer?.id" @change="chooseOffer($event.target.value)">
+        <option v-for="item in app.subscriptionOffers" :key="item.id" :value="item.id">{{ item.name }} · {{ item.days }} {{ daysLabel(item.days) }} · {{ app.priceLabel(item.price, item.stars) }}</option>
+      </select>
+    </label>
+    <p v-if="offer?.description" class="plan-description glass">{{ offer.description }}</p>
+    <p v-if="offer?.daily_tokens" class="plan-description glass">{{ offer.daily_tokens }} токенов в день по условиям бота</p>
+    <p v-if="!offer" class="plan-description glass">Сейчас нет доступных подписок.</p>
+    <p v-else-if="app.plan !== 'free' && offer.plan !== app.plan" class="plan-description glass">Новая подписка начнётся после оплаты. Оставшиеся дни сохранятся.</p>
+    <PayMethod v-if="offer" />
 
     <div v-if="app.payment && app.payment.purpose === 'plan'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
@@ -38,35 +40,27 @@
 
 <script>
 import { useApp } from '../stores/app'
-import { fmt, reduceMotion } from '../services/format'
+import { plural, reduceMotion } from '../services/format'
 import { tg } from '../services/telegram'
-import LensBar from '../components/LensBar.vue'
 import Sticker from '../components/Sticker.vue'
 import PayMethod from '../components/PayMethod.vue'
 
-const META = {
-  free: { sticker: 'sparkles', feats: ['Базовые модели картинок и видео', 'Ежедневный бонус токенов', 'Общая очередь'] },
-  plus: { sticker: 'gem', feats: ['Токены сразу на баланс, не сгорают', 'Фотореализм, Veo 3.1 Fast и Kling 3.0', 'Токены дешевле, чем в пакетах'] },
-  pro: { sticker: 'crown', feats: ['Всё из Plus и больше токенов', 'Veo 3.1 Quality в 1080p', 'Приоритет в очереди'] },
-}
-
 export default {
   name: 'PlansView',
-  components: { LensBar, Sticker, PayMethod },
-  data: () => ({ tilt: {}, tiers: ['free', 'plus', 'pro'] }),
+  components: { Sticker, PayMethod },
+  data: () => ({ tilt: {} }),
   computed: {
     app() { return useApp() },
-    info() { return this.app.plans[this.app.tier] || { name: '', month: 0, year_month: 0, tokens: 0 } },
-    meta() { return META[this.app.tier] },
-    monthly() {
-      const i = this.info, year = this.app.period === 'year'
-      return this.app.priceLabel(year ? i.year_month : i.month, year ? Math.round(i.stars_year / 12) : i.stars_month)
+    offer() { return this.app.subscriptionOffer },
+    price() { return this.app.priceLabel(this.offer.price, this.offer.stars) },
+    expiresAt() {
+      const date = this.app.user?.plan_expires_at
+      return date ? new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
     },
-    line() { return this.info.tokens ? `${fmt(this.info.tokens)} токенов в месяц` : 'Бонус каждый день' },
   },
   methods: {
-    fmt,
-    tgHaptic() { tg.haptic('selection') },
+    daysLabel(days) { return plural(days, 'день', 'дня', 'дней') },
+    chooseOffer(id) { this.app.subscriptionOfferId = Number(id); tg.haptic('selection') },
     onMove(e) {
       if (reduceMotion()) return
       const r = this.$refs.holo.getBoundingClientRect()
@@ -77,6 +71,11 @@ export default {
 }
 </script>
 
-<style>
+<style scoped>
 .swap-in { animation: swap 320ms var(--ease-out); }
+.plan-current, .plan-choice, .plan-description { margin: 0; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card); }
+.plan-current, .plan-choice { display: grid; gap: var(--space-xs); }
+.plan-current span { color: var(--color-muted); }
+.plan-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.plan-choice select { min-width: 0; width: 100%; color: var(--color-ink); background: var(--color-surface-2); border: 0; border-radius: var(--radius-ctl); padding: 10px; font: inherit; }
 </style>

@@ -62,6 +62,7 @@ const clean = (q) => Object.fromEntries(Object.entries(q || {}).filter(([, v]) =
 export const api = {
   bootstrap: () => request('GET', '/bootstrap'),
   me: () => request('GET', '/me'),
+  selectModel: (kind, model) => request('PATCH', '/me/models', { json: { kind, model } }),
   transactions: () => request('GET', '/transactions'),
   dailyBonus: () => request('POST', '/bonus/daily'),
   generations: (q) => request('GET', '/generations', { query: q }),
@@ -89,8 +90,12 @@ export const api = {
   musicDownload: (id, track) => blobUrl(`/music/${id}/tracks/${track}/download`),
   sendTrack: (id, track) => request('POST', `/music/${id}/tracks/${track}/send`),
   improvePrompt: (prompt, kind) => request('POST', '/prompt/improve', { json: { prompt, kind } }),
-  topup: (tokens, method) => request('POST', '/payments/topup', { json: { tokens, method } }),
-  buyPlan: (plan, period, method) => request('POST', '/payments/plan', { json: { plan, period, method } }),
+  topup: (offer, method) => request('POST', '/payments/topup', {
+    json: { offer_id: offer.id, tokens: offer.tokens, expected_price: offer.price, method },
+  }),
+  buyPlan: (offer, method) => request('POST', '/payments/plan', {
+    json: { offer_id: offer.id, expected_price: offer.price, expected_days: offer.days, method },
+  }),
   payment: (id) => request('GET', `/payments/${id}`),
   publicConfig: () => request('GET', '/config'),
 }

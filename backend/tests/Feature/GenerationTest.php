@@ -69,7 +69,8 @@ class GenerationTest extends TestCase
         $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны', 'model' => 'veo-lite', 'duration' => 10])->assertStatus(422);
         $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны', 'model' => 'veo-lite', 'format' => '1:1'])
             ->assertCreated()->assertJsonPath('data.0.params.format', '16:9')->assertJsonPath('data.0.cost', 40);
-        $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны', 'model' => 'veo'])->assertStatus(403);
+        $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны', 'model' => 'veo'])
+            ->assertStatus(402)->assertJsonPath('code', 'insufficient_balance');
         // No model named: the first one of the catalog.
         $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны'])->assertCreated()->assertJsonPath('data.0.cost', 20);
     }

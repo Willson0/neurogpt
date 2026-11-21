@@ -18,6 +18,7 @@ use App\Services\Bot\BotSync;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /** The app on the bot's tables (models.py): users, models, prompts, shop, payments, query_logs. */
@@ -50,6 +51,7 @@ class BotDatabaseTest extends TestCase
         $row = (array) DB::table('users')->where('id', 4242)->first();
         // every NOT NULL column of models.py is filled, the balance is the signup bonus in `tokens`
         $this->assertSame(50, (int) $row['tokens']);
+        $this->assertSame(0, (int) $row['ref_balance']);
         $this->assertSame('free', $row['sub']);
         $this->assertSame('free', $row['autocont_sub']);
         $this->assertEquals(1, $row['save_context']);
@@ -122,6 +124,13 @@ class BotDatabaseTest extends TestCase
         $this->assertStringContainsString('/storage/generations/', (string) $log->answer);
         $this->assertNull($log->attachments);
         $this->assertSame($log->id, (int) Generation::where('user_id', 780)->value('query_log_id'));
+        $native = QueryLog::create([
+            'user_id' => 780, 'model' => 'native-model', 'type' => 'text', 'token_used' => 2,
+            'prompt' => 'В боте', 'was_image_deleted' => false,
+        ]);
+        $history = $this->as(780)->getJson('/api/transactions')->assertOk()->json('data');
+        $this->assertCount(2, array_filter($history, fn ($item) => $item['type'] === 'spend'));
+        $this->assertSame(-2, collect($history)->firstWhere('id', 'bot-query-'.$native->id)['amount']);
     }
 
     public function test_chat_uses_the_bot_role_and_the_bot_text_model(): void
@@ -135,10 +144,14 @@ class BotDatabaseTest extends TestCase
         $this->assertSame('text', QueryLog::where('user_id', 781)->value('type'));
     }
 
-    public function test_paid_payment_is_mirrored_into_the_bot_tables_once(): void
+    public function test_legacy_subscription_invoice_is_mirrored_and_credited_once(): void
     {
         $this->user(782, 0);
-        $payment = Payment::find($this->as(782)->postJson('/api/payments/plan', ['plan' => 'plus', 'period' => 'month', 'method' => 'stars'])->json('data.id'));
+        $payment = Payment::create([
+            'user_id' => 782, 'provider' => 'stars', 'purpose' => 'plan', 'plan' => 'plus', 'period' => 'month',
+            'tokens' => 1000, 'amount' => 390, 'rub_amount' => 780, 'currency' => 'XTR', 'status' => 'pending',
+            'idempotence_key' => (string) Str::uuid(),
+        ]);
         $msg = ['message_id' => 9, 'chat' => ['id' => 782, 'type' => 'private'], 'from' => ['id' => 782],
             'successful_payment' => ['currency' => 'XTR', 'total_amount' => (int) $payment->amount,
                 'invoice_payload' => 'pay:'.$payment->id.':'.$payment->idempotence_key, 'telegram_payment_charge_id' => 'ch_1']];
@@ -161,6 +174,18 @@ class BotDatabaseTest extends TestCase
         $item = ShopItem::find($bp->item_id);
         $this->assertSame(['sub', 'plus', 30, false], [$item->category, $item->item, $item->amount, $item->active]);
         $this->assertSame($bp->id, (int) $payment->refresh()->bot_payment_id);
+
+        $botOnly = BotPayment::create([
+            'user_id' => 782, 'recipient_id' => 782, 'item_id' => $item->id, 'payment_id' => 'bot-native-1',
+            'total' => 120, 'total_valut' => 'RUB', 'rub_total' => 120, 'is_autopayment' => false,
+            'was_bought' => true, 'is_proceed' => true,
+        ]);
+        $this->as(1337592809)->getJson('/api/admin/payments')->assertOk()
+            ->assertJsonPath('summary.succeeded', 2)->assertJsonCount(2, 'data');
+        $this->as(1337592809)->getJson('/api/admin/payments?provider=bot')->assertOk()
+            ->assertJsonPath('data.0.id', 'bot-'.$botOnly->id)->assertJsonPath('data.0.plan', 'plus');
+        $history = $this->as(782)->getJson('/api/transactions')->assertOk()->json('data');
+        $this->assertCount(2, array_filter($history, fn ($row) => $row['type'] === 'subscription'));
     }
 
     public function test_an_existing_shop_item_is_reused(): void
@@ -179,26 +204,40 @@ class BotDatabaseTest extends TestCase
     public function test_bot_catalog_is_pulled_and_admin_edits_go_back_to_the_bot(): void
     {
         $bot = BotModel::create(['type' => 'photo', 'can_image' => true, 'price' => 25, 'name' => 'flux-pro', 'text_name' => 'Flux Pro',
-            'tag' => '', 'allowed_subs' => ['pro'], 'params' => (object) []]);
+            'tag' => '', 'only_sub' => true, 'params' => (object) []]);
         $prompt = BotPrompt::create(['name' => 'Барби', 'prompt' => 'Make a barbie doll', 'trend' => true, 'position' => 1]);
         app(BotSync::class)->pullCatalog();
 
         $m = AiModel::where('bot_model_id', $bot->id)->firstOrFail();
-        $this->assertSame(['image', 'Flux Pro', 25, 'pro', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
+        $this->assertSame(['image', 'Flux Pro', 25, 'sub', true], [$m->kind, $m->name, $m->price, $m->min_plan, $m->is_active]);
         $boot = $this->as(784)->getJson('/api/bootstrap')->assertOk();
-        $this->assertSame(25, collect($boot->json('models.image'))->firstWhere('name', 'Flux Pro')['price']);
+        $published = collect($boot->json('models.image'))->firstWhere('name', 'Flux Pro');
+        $this->assertSame(25, $published['price']);
+        $this->assertTrue($published['is_sub']);
         $set = collect($boot->json('photosets'))->firstWhere('name', 'Барби');
         $this->assertTrue($set['trending']);
+
+        $body = ['kind' => 'image', 'model' => $m->slug, 'prompt' => 'Портрет'];
+        $this->as(784)->postJson('/api/generations', $body)->assertForbidden()->assertJsonPath('code', 'model_locked');
+        $subscriber = $this->user(785, 100, 'any-paid');
+        $this->as(785)->postJson('/api/generations', $body)->assertCreated();
+        $subscriber->setPlan('any-paid', now()->subDay())->save();
+        $this->as(785)->postJson('/api/generations', $body)->assertForbidden();
 
         // the bot owner changes the price in the bot: the app shows it at once
         $bot->update(['price' => 30]);
         $this->assertSame(30, AiModel::find($m->id)->price);
+        $this->as(785)->patchJson('/api/me/models', ['kind' => 'image', 'model' => $m->slug])->assertForbidden();
 
         // an admin edit is written to the bot row
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])
-            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'plus', 'name' => 'Flux'])->assertOk();
+            ->patchJson("/api/admin/models/{$m->id}", ['price' => 40, 'min_plan' => 'free', 'name' => 'Flux'])->assertOk()->assertJsonPath('data.is_sub', false);
         $bot->refresh();
-        $this->assertSame([40, 'Flux', ['plus', 'pro']], [$bot->price, $bot->text_name, $bot->allowed_subs]);
+        $this->assertSame([40, 'Flux', false], [$bot->price, $bot->text_name, $bot->only_sub]);
+        $this->as(785)->patchJson('/api/me/models', ['kind' => 'image', 'model' => $m->slug])->assertOk();
+        $this->assertSame($bot->id, (int) $subscriber->refresh()->photo_model_id);
+        $this->as(785)->getJson('/api/bootstrap')->assertJsonPath('selected_models.image', $m->slug);
+        $this->as(785)->postJson('/api/generations', $body)->assertCreated();
 
         $ps = Photoset::where('prompt_id', $prompt->id)->firstOrFail();
         $this->withHeaders(['Authorization' => 'tma '.$this->initData(1337592809), 'Accept' => 'application/json'])

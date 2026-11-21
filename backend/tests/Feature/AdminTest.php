@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AiModel;
+use App\Models\Bot\ShopItem;
 use App\Models\Chat;
 use App\Models\Generation;
 use App\Models\News;
@@ -12,6 +13,7 @@ use App\Services\Admin\Settings;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -51,7 +53,7 @@ class AdminTest extends TestCase
     public function test_model_is_edited_created_deleted_and_survives_the_seeder(): void
     {
         $model = AiModel::where('kind', 'image')->where('slug', 'detail')->firstOrFail();
-        $this->admin()->patchJson("/api/admin/models/{$model->id}", ['name' => 'Супер', 'price' => 77, 'min_plan' => 'pro', 'badge' => 'Новая'])
+        $this->admin()->patchJson("/api/admin/models/{$model->id}", ['name' => 'Супер', 'price' => 77, 'min_plan' => 'sub', 'badge' => 'Новая'])
             ->assertOk()->assertJsonPath('data.price', 77)->assertJsonPath('data.edited', true);
 
         $video = AiModel::where('kind', 'video')->where('slug', 'kling')->firstOrFail();
@@ -81,27 +83,25 @@ class AdminTest extends TestCase
 
     public function test_settings_change_prices_bonuses_and_reload_from_the_database(): void
     {
+        ShopItem::create(['active' => true, 'text_name' => '50 токенов', 'category' => 'token', 'item' => 'tokens_50', 'amount' => 50, 'price' => 60]);
+        ShopItem::create(['active' => true, 'text_name' => '300 токенов', 'category' => 'token', 'item' => 'tokens_300', 'amount' => 300, 'price' => 250]);
         $this->admin()->putJson('/api/admin/settings', ['values' => [
-            'packs' => [['tokens' => 300, 'price' => 250, 'badge' => 'Хит'], ['tokens' => 50, 'price' => 60]],
-            'plans' => ['plus' => ['name' => 'Плюс', 'month' => 900, 'year_month' => 600, 'tokens' => 1200], 'pro' => ['name' => 'Pro', 'month' => 1980, 'year_month' => 1380, 'tokens' => 3000]],
             'bonus' => ['signup' => 70, 'daily' => 9],
             'stars' => ['rub_per_star' => 2.5],
             'limits' => ['active_generations' => 2],
             'telegram.support_url' => 'https://t.me/help_me',
         ]])->assertOk()->assertJsonPath('data.bonus.referral', 50)->assertJsonPath('data.bonus.signup', 70);
 
-        $boot = $this->as(7)->getJson('/api/bootstrap')->assertOk()
+        $this->as(7)->getJson('/api/bootstrap')->assertOk()
             ->assertJsonPath('user.balance', 70)->assertJsonPath('packs.0.tokens', 50)->assertJsonPath('packs.1.stars', 100)
-            ->assertJsonPath('plans.plus.name', 'Плюс')->assertJsonPath('support_url', 'https://t.me/help_me');
-        $this->assertSame(0, $boot->json('plans.free.month'));
+            ->assertJsonCount(0, 'subscription_offers')->assertJsonPath('support_url', 'https://t.me/help_me');
         $this->as(7)->postJson('/api/payments/topup', ['tokens' => 100, 'method' => 'stars'])->assertStatus(422);
 
         // a fresh process reads the same values back from the table
-        config(['neurogpt.bonus.signup' => 50, 'neurogpt.packs' => []]);
+        config(['neurogpt.bonus.signup' => 50]);
         Settings::apply();
         $this->assertSame(70, config('neurogpt.bonus.signup'));
         $this->assertSame(5, (int) config('neurogpt.bonus.referral') / 10);
-        $this->assertCount(2, config('neurogpt.packs'));
         $this->assertSame(1200, (int) config('neurogpt.limits.generation_timeout'));
 
         foreach ([
@@ -226,7 +226,9 @@ class AdminTest extends TestCase
         $this->assertSame(500, $user->refresh()->balance);
         $this->assertSame(2, $user->transactions()->whereIn('title', ['Начисление от администрации', 'Списание администрацией'])->count());
 
-        $this->admin()->patchJson("/api/admin/users/{$user->id}", ['plan' => 'pro', 'plan_days' => 10])->assertOk()->assertJsonPath('data.plan', 'pro');
+        ShopItem::create(['active' => true, 'text_name' => 'Клуб', 'category' => 'sub', 'item' => 'club', 'amount' => 45, 'price' => 749]);
+        $this->admin()->getJson('/api/admin/users?q=9')->assertJsonPath('plans.club', 'Клуб');
+        $this->admin()->patchJson("/api/admin/users/{$user->id}", ['plan' => 'club', 'plan_days' => 10])->assertOk()->assertJsonPath('data.plan', 'club');
         $this->admin()->patchJson("/api/admin/users/{$user->id}", ['is_blocked' => true])->assertOk();
         $this->as(9)->getJson('/api/me')->assertStatus(403);
 
@@ -257,10 +259,12 @@ class AdminTest extends TestCase
         $this->admin()->putJson('/api/admin/settings', ['values' => ['admins' => [555]]])->assertStatus(422);
         $this->assertArrayNotHasKey('admins', $this->admin()->getJson('/api/admin/settings')->json('data'));
 
-        // the list survives a restart, the main admin cannot be removed
-        config(['neurogpt.admins' => []]);
-        Settings::apply();
-        $this->assertSame([42, 777], config('neurogpt.admins'));
+        // Access tracks the shared list immediately, the main admin cannot be removed.
+        $this->assertDatabaseHas('admins', ['id' => 42, 'username' => 'nik42']);
+        DB::table('admins')->insert(['id' => 555, 'username' => 'bot-admin']);
+        $this->as(555)->getJson('/api/admin/stats')->assertOk();
+        DB::table('admins')->where('id', 555)->delete();
+        $this->as(555)->getJson('/api/admin/stats')->assertForbidden();
         $this->admin()->deleteJson('/api/admin/admins/'.self::ADMIN)->assertStatus(404);
         $this->admin()->deleteJson('/api/admin/admins/42')->assertOk()->assertJsonCount(2, 'data');
         $this->as(42)->getJson('/api/admin/stats')->assertStatus(403);
@@ -337,6 +341,7 @@ class AdminTest extends TestCase
         ]);
         $this->admin()->postJson('/api/admin/yookassa/check')->assertOk()->assertJsonPath('ok', true)->assertJsonPath('account_id', '654321');
         $this->user(2, 0);
+        ShopItem::create(['active' => true, 'text_name' => '500 токенов', 'category' => 'token', 'item' => 'tokens_500', 'amount' => 500, 'price' => 450]);
         $pid = $this->as(2)->postJson('/api/payments/topup', ['tokens' => 500, 'method' => 'card'])->assertCreated()->json('data.id');
         Http::assertSent(fn ($r) => str_ends_with($r->url(), '/payments') && $r->hasHeader('Authorization', 'Basic '.base64_encode('654321:live_SUPERSECRETKEY1234')) && $r['receipt']['customer']['email'] === 'shop@example.com');
 

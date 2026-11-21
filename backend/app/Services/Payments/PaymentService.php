@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments;
 
+use App\Models\Bot\ShopItem;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\Billing\Wallet;
@@ -10,14 +11,12 @@ use App\Services\Telegram\Bot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use InvalidArgumentException;
+use Illuminate\Support\Collection;
 use RuntimeException;
 use Throwable;
 
 class PaymentService
 {
-    private const RANK = ['free' => 0, 'plus' => 1, 'pro' => 2];
-
     public function __construct(
         private readonly YooKassa $yookassa,
         private readonly Wallet $wallet,
@@ -39,37 +38,32 @@ class PaymentService
         return max(1, (int) ceil($rub / (float) config('neurogpt.stars.rub_per_star')));
     }
 
-    public function createTopup(User $user, int $tokens, string $method = 'card'): Payment
+    public static function tokenOffers(): Collection
     {
-        $pack = collect(config('neurogpt.packs'))->firstWhere('tokens', $tokens);
-        if (! $pack) {
-            throw new InvalidArgumentException('Unknown pack');
-        }
+        return ShopItem::tokenOffers()->orderBy('amount')->orderBy('price')->orderBy('id')->get()->map(function (ShopItem $offer) {
+            $description = json_decode($offer->description ?? '', true);
 
-        return $this->start($user, $method, [
-            'purpose' => 'topup', 'tokens' => $pack['tokens'], 'amount' => $pack['price'],
-        ], "Пополнение: {$pack['tokens']} токенов");
+            return [
+                'id' => $offer->id, 'name' => $offer->text_name, 'tokens' => $offer->amount, 'price' => $offer->price,
+                'stars' => self::stars($offer->price), 'badge' => $offer->tag,
+                'photo' => $description['photo'] ?? null, 'video' => $description['video'] ?? null,
+            ];
+        });
     }
 
-    public function createPlan(User $user, string $plan, string $period, string $method = 'card'): Payment
+    public function createTopup(User $user, ShopItem $offer, string $method = 'card'): Payment
     {
-        $cfg = config("neurogpt.plans.$plan");
-        if (! $cfg || $plan === 'free' || ! in_array($period, ['month', 'year'], true)) {
-            throw new InvalidArgumentException('Unknown plan');
-        }
-
-        $amount = $period === 'year' ? $cfg['year_month'] * 12 : $cfg['month'];
-
         return $this->start($user, $method, [
-            'purpose' => 'plan', 'plan' => $plan, 'period' => $period, 'amount' => $amount,
-            'tokens' => $cfg['tokens'] * ($period === 'year' ? 12 : 1),
-        ], "Подписка {$cfg['name']}, ".($period === 'year' ? 'год' : 'месяц'));
+            'purpose' => 'topup', 'tokens' => $offer->amount, 'amount' => $offer->price, 'shop_item_id' => $offer->id,
+        ], "Пополнение: {$offer->amount} токенов");
     }
 
-    /** Buying a cheaper plan while a higher one is active would silently take the higher one away. */
-    public function isDowngrade(User $user, string $plan): bool
+    public function createPlan(User $user, ShopItem $offer, string $method = 'card'): Payment
     {
-        return (self::RANK[$plan] ?? 0) < (self::RANK[$user->activePlan()] ?? 0);
+        return $this->start($user, $method, [
+            'purpose' => 'plan', 'plan' => $offer->item, 'amount' => $offer->price, 'tokens' => 0,
+            'shop_item_id' => $offer->id, 'plan_days' => $offer->amount, 'plan_name' => $offer->text_name,
+        ], "Подписка {$offer->text_name} на {$offer->amount} дн.");
     }
 
     private function start(User $user, string $method, array $attrs, string $description): Payment
@@ -121,7 +115,7 @@ class PaymentService
 
     private function startStars(Payment $payment, string $description): void
     {
-        $title = $payment->purpose === 'topup' ? "{$payment->tokens} токенов" : 'Подписка '.config("neurogpt.plans.{$payment->plan}.name");
+        $title = $payment->purpose === 'topup' ? "{$payment->tokens} токенов" : 'Подписка '.$payment->subscriptionName();
         $link = $this->bot->createStarsInvoice($title, $description.' в NeuroGPT', self::starsPayload($payment), (int) $payment->amount);
         if (! $link) {
             throw new RuntimeException('Telegram did not create the Stars invoice');
@@ -269,18 +263,13 @@ class PaymentService
             return;
         }
 
-        $months = $payment->period === 'year' ? 12 : 1;
-        $active = $user->activePlan();
-        if ((self::RANK[$payment->plan] ?? 0) >= (self::RANK[$active] ?? 0)) {
-            // Same plan: the paid time is added on top. Upgrade: the new plan starts now.
-            $base = ($active === $payment->plan && $user->plan_expires_at?->isFuture()) ? $user->plan_expires_at : now();
-            // The bot's columns: sub, start_sub_time, end_sub_time.
-            $user->setPlan($payment->plan, $base->copy()->addMonths($months))->save();
-        }
-        // (A cheaper plan paid while a higher one is active keeps the higher plan; the tokens are still credited.)
+        // Preserve paid time, including when the user chooses another offer.
+        $base = $user->hasActivePlan() ? $user->plan_expires_at->copy() : now();
+        $until = $payment->plan_days ? $base->addDays($payment->plan_days) : $base->addMonths($payment->period === 'year' ? 12 : 1);
+        $user->setPlan($payment->plan, $until)->forceFill(['was_subed' => true])->save();
 
-        $name = config("neurogpt.plans.{$payment->plan}.name");
-        // Subscription tokens go to the bot's sub_tokens: they can be spent while the subscription is active.
+        $name = $payment->subscriptionName();
+        // Older invoices may include subscription tokens.
         $this->wallet->credit($user, $payment->tokens, 'subscription', "Подписка {$name}", ['payment_id' => $payment->id], $via, 'sub_tokens');
     }
 

@@ -11,9 +11,10 @@
       </div>
     </li>
   </ul>
-  <PayMethod v-if="app.payMethods.length > 1" />
-  <button type="button" class="bigbtn shine" :disabled="app.busy" @click="buy"><span class="lbl">Купить за {{ price }}</span></button>
-  <button type="button" class="ghostbtn" @click="more">Другие пакеты</button>
+  <PayMethod v-if="pack && app.payMethods.length > 1" />
+  <button v-if="pack && app.method" type="button" class="bigbtn shine" :disabled="app.busy" @click="buy"><span class="lbl">Купить за {{ price }}</span></button>
+  <button v-if="app.packs.length > 1" type="button" class="ghostbtn" @click="more">Другие пакеты</button>
+  <p v-if="!pack" class="lead">Сейчас нет доступных пакетов токенов.</p>
 </template>
 
 <script>
@@ -28,7 +29,7 @@ export default {
   props: { lack: { type: Number, default: 1 } },
   computed: {
     app() { return useApp() },
-    pack() { return this.app.packs.find((p) => p.tokens >= this.lack) || this.app.packs[0] },
+    pack() { return this.app.packs.find((p) => p.tokens >= this.lack) || this.app.packs.at(-1) },
     price() { return this.pack ? this.app.priceLabel(this.pack.price, this.pack.stars) : '' },
     imagePrice() { return this.app.models.image[0]?.price || 8 },
   },

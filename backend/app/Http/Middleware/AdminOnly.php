@@ -5,11 +5,12 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Runs after TelegramAuth. Admins are the owners hardcoded in neurogpt.admin_ids
- * plus the people an owner added in the panel (the "admins" setting).
+ * plus the bot's shared list of administrators.
  */
 class AdminOnly
 {
@@ -29,7 +30,7 @@ class AdminOnly
 
     public static function allowsId(int $telegramId): bool
     {
-        return in_array($telegramId, self::owners(), true) || in_array($telegramId, self::added(), true);
+        return in_array($telegramId, self::owners(), true) || DB::table('admins')->where('id', $telegramId)->exists();
     }
 
     /** The main admin can manage the list of admins and cannot be removed from the code-defined list. */
@@ -47,6 +48,6 @@ class AdminOnly
     /** @return list<int> */
     public static function added(): array
     {
-        return array_values(array_map('intval', (array) config('neurogpt.admins')));
+        return DB::table('admins')->whereNotIn('id', self::owners())->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 }

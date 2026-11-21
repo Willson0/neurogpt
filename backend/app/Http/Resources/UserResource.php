@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Http\Middleware\AdminOnly;
+use App\Services\Payments\SubscriptionCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +23,7 @@ class UserResource extends JsonResource
             // The bot's three counters behind the balance: bought/bonus, subscription, temporary.
             'balance_parts' => $u->balanceParts(),
             'plan' => $u->activePlan(),
+            'plan_name' => SubscriptionCatalog::name($u->activePlan()),
             'plan_expires_at' => $u->activePlan() === 'free' ? null : $u->plan_expires_at?->toIso8601String(),
             'streak' => $u->streak,
             'is_admin' => AdminOnly::allows($u),

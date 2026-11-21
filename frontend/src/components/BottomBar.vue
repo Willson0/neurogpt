@@ -70,14 +70,13 @@ export default {
         const queued = g.items.every((i) => i.status === 'queued')
         return { main: 'Свернуть, пришлю в чат', sec: queued ? 'Отменить, токены вернутся' : null, secDanger: true, onMain: () => a.minimize(), onSec: () => a.cancelGeneration() }
       }
-      if (id === 'topup') return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
-      if (id === 'plans' && a.tier !== 'free' && !(a.plan === 'pro' && a.tier === 'plus')) {
-        const p = a.plans[a.tier]
-        if (!p) return null
-        const price = a.priceLabel(a.period === 'month' ? p.month : p.year_month * 12, a.period === 'month' ? p.stars_month : p.stars_year)
+      if (id === 'topup' && a.pack.id && a.method) return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'plans' && a.subscriptionOffer && a.method) {
+        const offer = a.subscriptionOffer
+        const price = a.priceLabel(offer.price, offer.stars)
         return {
-          main: `${a.plan === a.tier ? 'Продлить' : 'Оформить'} ${p.name} за ${price}`,
-          gold: a.tier === 'pro', shine: true, busy: a.busy, onMain: () => a.pay('plan'),
+          main: `${a.plan === offer.plan ? 'Продлить' : 'Оформить'} за ${price}`,
+          gold: true, shine: true, busy: a.busy, onMain: () => a.pay('plan'),
         }
       }
       return null

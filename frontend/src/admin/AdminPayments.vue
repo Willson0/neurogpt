@@ -14,7 +14,7 @@
         </template>
         <label class="adm-f grow">Кто или какой платёж<input v-model.trim="user" type="search" placeholder="@username, Telegram id, номер или id в ЮKassa" @keyup.enter="reload" @search="reload"></label>
         <label class="adm-f">Статус<select v-model="status" @change="reload"><option value="">Любой</option><option v-for="(n, k) in statuses" :key="k" :value="k">{{ n }}</option></select></label>
-        <label class="adm-f">Способ<select v-model="provider" @change="reload"><option value="">Любой</option><option value="yookassa">ЮKassa</option><option value="stars">Telegram Stars</option></select></label>
+        <label class="adm-f">Источник<select v-model="provider" @change="reload"><option value="">Любой</option><option value="yookassa">ЮKassa</option><option value="stars">Telegram Stars</option><option value="bot">Бот</option></select></label>
         <label class="adm-f">Что купили<select v-model="purpose" @change="reload"><option value="">Всё</option><option value="topup">Токены</option><option value="plan">Подписка</option></select></label>
       </div>
       <div class="adm-stats">
@@ -39,11 +39,11 @@
               <dt>Номер</dt><dd>{{ p.id }}</dd>
               <dt>Покупатель</dt><dd>{{ p.user ? `${p.user.name}${p.user.username ? ' (@' + p.user.username + ')' : ''}, Telegram id ${p.user.telegram_id}` : 'удалён' }}</dd>
               <dt>Сумма</dt><dd>{{ money(p) }}<template v-if="p.income !== null">, к зачислению после комиссии {{ num(p.income) }} ₽</template></dd>
-              <dt>Способ</dt><dd>{{ p.provider === 'stars' ? 'Telegram Stars' : 'ЮKassa' }}<template v-if="p.method_title">, {{ p.method_title }}</template><template v-if="p.test"> (тестовый платёж)</template></dd>
-              <dt>Что купили</dt><dd>{{ title(p) }}<template v-if="p.purpose === 'plan'">, {{ num(p.tokens) }} токенов</template></dd>
+              <dt>Источник</dt><dd>{{ p.provider === 'bot' ? 'Бот' : p.provider === 'stars' ? 'Telegram Stars' : 'ЮKassa' }}<template v-if="p.method_title">, {{ p.method_title }}</template><template v-if="p.test"> (тестовый платёж)</template></dd>
+              <dt>Что купили</dt><dd>{{ title(p) }}<template v-if="p.purpose === 'plan' && p.tokens">, {{ num(p.tokens) }} токенов</template></dd>
               <dt>Создан</dt><dd>{{ when(p.created_at) }}</dd>
               <template v-if="p.credited_at"><dt>Зачислен</dt><dd>{{ when(p.credited_at) }}</dd></template>
-              <template v-if="p.provider_payment_id"><dt>{{ p.provider === 'stars' ? 'Id в Telegram' : 'Id в ЮKassa' }}</dt><dd>{{ p.provider_payment_id }}</dd></template>
+              <template v-if="p.provider_payment_id"><dt>ID платежа</dt><dd>{{ p.provider_payment_id }}</dd></template>
               <template v-if="p.cancel_reason"><dt>Причина отмены</dt><dd>{{ reasons[p.cancel_reason] || p.cancel_reason }}</dd></template>
             </dl>
             <div class="adm-actions">
@@ -104,7 +104,7 @@
 
 <script>
 import { adminApi } from '../services/api'
-import { section, PERIODS, periodRange, PLANS } from './shared'
+import { section, PERIODS, periodRange } from './shared'
 
 export default {
   name: 'AdminPayments',
@@ -126,8 +126,13 @@ export default {
   watch: { tab(t) { if (t === 'shop' && !this.shop) this.loadShop() } },
   mounted() { this.reload() },
   methods: {
-    title(p) { return p.purpose === 'plan' ? `Подписка ${PLANS[p.plan] || p.plan}, ${p.period === 'year' ? 'год' : 'месяц'}` : `${this.num(p.tokens)} токенов` },
-    money(p) { return `${this.num(p.amount)} ${p.currency === 'XTR' ? '⭐' : '₽'}` },
+    title(p) {
+      if (p.purpose === 'other') return p.item_name || 'Покупка'
+      if (p.purpose !== 'plan') return `${this.num(p.tokens)} токенов`
+      const duration = p.plan_days ? `${p.plan_days} дн.` : p.period === 'year' ? 'год' : 'месяц'
+      return `Подписка ${p.plan_name || p.plan}, ${duration}`
+    },
+    money(p) { return `${this.num(p.amount)} ${p.currency === 'XTR' ? '⭐' : p.currency === 'RUB' ? '₽' : p.currency}` },
     reload() { this.items = []; this.next = null; this.open = null; return this.load(1) },
     load(page) {
       const seq = ++this.seq

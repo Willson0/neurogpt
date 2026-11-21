@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PaymentResource;
 use App\Http\Resources\UserResource;
+use App\Models\Bot\ShopItem;
 use App\Models\Payment;
 use App\Services\Payments\PaymentService;
+use App\Services\Payments\SubscriptionCatalog;
 use App\Services\Payments\YooKassa;
 use App\Services\Telegram\Bot;
 use Illuminate\Http\Request;
@@ -19,26 +21,44 @@ class PaymentController extends Controller
     public function topup(Request $request, PaymentService $payments)
     {
         $data = $request->validate([
-            'tokens' => ['required', 'integer', Rule::in(array_column(config('neurogpt.packs'), 'tokens'))],
+            'offer_id' => ['required_without:tokens', 'integer', 'min:1'],
+            'tokens' => ['required_without:offer_id', 'integer', 'min:1'],
+            'expected_price' => ['sometimes', 'integer', 'min:1'],
             'method' => ['nullable', Rule::in(['card', 'stars'])],
         ]);
 
-        return $this->respond(fn () => $payments->createTopup($request->user(), $data['tokens'], $data['method'] ?? 'card'));
+        $offers = ShopItem::tokenOffers();
+        $offer = isset($data['offer_id']) ? $offers->find($data['offer_id'])
+            : $offers->where('amount', $data['tokens'])->orderBy('price')->orderBy('id')->first();
+        if (! $offer || (isset($data['expected_price']) && $offer->price !== (int) $data['expected_price'])
+            || (isset($data['tokens']) && $offer->amount !== (int) $data['tokens'])) {
+            return response()->json(['message' => 'Token offer changed', 'code' => 'token_offer_changed'], 422);
+        }
+
+        return $this->respond(fn () => $payments->createTopup($request->user(), $offer, $data['method'] ?? 'card'));
     }
 
     public function plan(Request $request, PaymentService $payments)
     {
         $data = $request->validate([
-            'plan' => ['required', Rule::in(['plus', 'pro'])],
-            'period' => ['required', Rule::in(['month', 'year'])],
+            'offer_id' => ['required_without:plan', 'integer', 'min:1'],
+            'expected_price' => ['sometimes', 'integer', 'min:1'],
+            'expected_days' => ['sometimes', 'integer', 'min:1'],
+            'plan' => ['required_without:offer_id', 'string', 'max:12'],
+            'period' => ['required_without:offer_id', Rule::in(['month', 'year'])],
             'method' => ['nullable', Rule::in(['card', 'stars'])],
         ]);
 
-        if ($payments->isDowngrade($request->user(), $data['plan'])) {
-            return response()->json(['message' => 'A higher plan is active', 'code' => 'plan_downgrade'], 422);
+        $offers = SubscriptionCatalog::purchasable();
+        $offer = isset($data['offer_id'])
+            ? $offers->find($data['offer_id'])
+            : $offers->where('item', $data['plan'])->where('amount', $data['period'] === 'year' ? 365 : 30)->orderBy('id')->first();
+        if (! $offer || (isset($data['expected_price']) && (int) $data['expected_price'] !== $offer->price)
+            || (isset($data['expected_days']) && (int) $data['expected_days'] !== $offer->amount)) {
+            return response()->json(['message' => 'Subscription offer changed', 'code' => 'subscription_offer_changed'], 422);
         }
 
-        return $this->respond(fn () => $payments->createPlan($request->user(), $data['plan'], $data['period'], $data['method'] ?? 'card'));
+        return $this->respond(fn () => $payments->createPlan($request->user(), $offer, $data['method'] ?? 'card'));
     }
 
     /** Polled by the app after the user comes back from the payment page. */

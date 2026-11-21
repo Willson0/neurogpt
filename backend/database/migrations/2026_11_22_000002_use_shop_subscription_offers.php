@@ -1,39 +1,40 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('wa_payments', function (Blueprint $table) {
-            $table->unsignedBigInteger('shop_item_id')->nullable();
-            $table->unsignedInteger('plan_days')->nullable();
-            $table->string('plan_name', 128)->nullable();
-        });
+        // MySQL commits each ALTER independently, even if the migration fails before it is recorded.
+        $columns = [
+            'shop_item_id' => fn (Blueprint $table) => $table->unsignedBigInteger('shop_item_id')->nullable(),
+            'plan_days' => fn (Blueprint $table) => $table->unsignedInteger('plan_days')->nullable(),
+            'plan_name' => fn (Blueprint $table) => $table->string('plan_name', 128)->nullable(),
+        ];
+        foreach ($columns as $column => $add) {
+            if (Schema::hasColumn('wa_payments', $column)) {
+                continue;
+            }
 
-        // Only upgrade old local SQLite copies. The bot owns the shared MySQL schema.
-        if (DB::connection()->getDriverName() !== 'sqlite' || ! Schema::hasColumn('models', 'allowed_subs')
-            || Schema::hasColumn('models', 'is_sub')) {
-            return;
-        }
-
-        Schema::table('models', fn (Blueprint $table) => $table->boolean('is_sub')->default(false));
-        DB::table('models')->select(['id', 'allowed_subs'])->chunkById(100, function ($models) {
-            foreach ($models as $model) {
-                $subs = json_decode((string) $model->allowed_subs, true);
-                if (is_array($subs) && $subs && ! in_array('free', $subs, true)) {
-                    DB::table('models')->where('id', $model->id)->update(['is_sub' => true]);
+            try {
+                Schema::table('wa_payments', $add);
+            } catch (QueryException $e) {
+                // A second deploy can add the same column after the schema check.
+                if ((int) ($e->errorInfo[1] ?? 0) !== 1060 || ! Schema::hasColumn('wa_payments', $column)) {
+                    throw $e;
                 }
             }
-        });
+        }
+
     }
 
     public function down(): void
     {
-        Schema::table('wa_payments', fn (Blueprint $table) => $table->dropColumn(['shop_item_id', 'plan_days', 'plan_name']));
+        // These columns may belong to an earlier deployment and contain paid order data.
+        throw new RuntimeException('This migration cannot remove existing subscription payment data.');
     }
 };

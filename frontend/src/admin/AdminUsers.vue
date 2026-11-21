@@ -23,7 +23,7 @@
         <button type="button" class="row" :aria-expanded="String(edit === u)" @click="toggle(u)">
           <span class="sq">{{ (u.name || '?')[0] }}</span>
           <span class="t"><b>{{ u.name }}<span v-if="u.is_admin" class="badge">админ</span></b><span>{{ u.username ? '@' + u.username + ' · ' : '' }}id {{ u.telegram_id }}</span></span>
-          <span class="end"><span v-if="u.is_blocked" class="adm-pill bad">блок</span><span v-if="u.plan !== 'free'" class="adm-pill hot">{{ plans[u.plan] }}</span>{{ num(u.balance) }} ток.</span>
+          <span class="end"><span v-if="u.is_blocked" class="adm-pill bad">блок</span><span v-if="u.plan !== 'free'" class="adm-pill hot">{{ plans[u.plan] || u.plan }}</span>{{ num(u.balance) }} ток.</span>
         </button>
         <div v-if="edit === u" class="adm-edit">
           <dl class="adm-kv">
@@ -42,7 +42,7 @@
           <form class="adm-sub" @submit.prevent="setPlan(u)">
             <span class="ctl-label">Подписка</span>
             <div class="adm-line">
-              <label class="adm-f">Тариф<select v-model="plan"><option v-for="(n, k) in plans" :key="k" :value="k">{{ n }}</option></select></label>
+              <label class="adm-f">Тариф<select v-model="plan" required><option v-if="!plans[u.plan]" value="" disabled>Выберите тариф</option><option v-for="(n, k) in plans" :key="k" :value="k">{{ n }}</option></select></label>
               <label v-if="plan !== 'free'" class="adm-f">На сколько дней<input v-model.number="days" type="number" min="1" max="3660" required></label>
             </div>
             <div class="adm-actions"><button type="submit" class="adm-btn sm" :disabled="busy">Применить</button></div>
@@ -75,15 +75,15 @@
 
 <script>
 import { adminApi } from '../services/api'
-import { section, PLANS } from './shared'
+import { section } from './shared'
 
 export default {
   name: 'AdminUsers',
   mixins: [section],
   emits: ['content', 'payments'],
   data: () => ({
-    tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: 'users', plans: PLANS,
-    q: '', filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: 30, seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
+    tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: 'users', plans: {},
+    q: '', filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: '', seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
   }),
   mounted() { this.reload() },
   methods: {
@@ -94,6 +94,7 @@ export default {
         const r = this.tab === 'users' ? await adminApi.list('users', { q: this.q, filter: this.filter, page }) : await adminApi.list('admins')
         if (this.tab === 'admins') this.canManage = r.can_manage
         if (seq !== this.seq) return
+        if (r.plans) this.plans = r.plans
         this.items = page === 1 ? r.data : [...this.items, ...r.data]
         this.next = r.next_page
         this.total = r.summary?.total ?? this.items.length
@@ -101,13 +102,14 @@ export default {
     },
     toggle(u) {
       this.edit = this.edit === u ? null : u
-      this.plan = u.plan
+      this.plan = this.plans[u.plan] ? u.plan : ''
+      this.days = ''
       this.amount = 100
       this.comment = ''
     },
     replace(old, fresh) { const i = this.items.indexOf(old); this.items.splice(i, 1, fresh); this.edit = this.items[i]; if (fresh.id === this.app.user.id) this.app.refreshUser() },
     balance(u, sign) { return this.run(async () => { this.replace(u, (await adminApi.balance(u.id, sign * this.amount, this.comment || null)).data) }, sign > 0 ? 'Токены начислены' : 'Токены списаны') },
-    setPlan(u) { return this.run(async () => { this.replace(u, (await adminApi.update('users', u.id, { plan: this.plan, plan_days: this.days })).data) }, 'Подписка обновлена') },
+    setPlan(u) { return this.run(async () => { this.replace(u, (await adminApi.update('users', u.id, { plan: this.plan, plan_days: this.plan === 'free' ? null : this.days })).data) }, 'Подписка обновлена') },
     addAdmin() { return this.run(async () => { this.items = (await adminApi.create('admins', { user: this.newAdmin })).data; this.newAdmin = '' }, 'Администратор добавлен') },
     removeAdmin(a) {
       if (this.confirmAdmin !== a.telegram_id) { this.confirmAdmin = a.telegram_id; return }

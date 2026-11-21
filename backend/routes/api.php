@@ -33,6 +33,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::post('auth/telegram', [MeController::class, 'show']);
     Route::get('bootstrap', BootstrapController::class);
     Route::get('me', [MeController::class, 'show']);
+    Route::patch('me/models', [MeController::class, 'selectModel']);
     Route::get('transactions', [MeController::class, 'transactions']);
     Route::post('bonus/daily', [MeController::class, 'dailyBonus']);
 

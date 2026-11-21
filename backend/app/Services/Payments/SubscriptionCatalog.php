@@ -5,6 +5,7 @@ namespace App\Services\Payments;
 use App\Models\Bot\ShopItem;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class SubscriptionCatalog
 {
@@ -24,7 +25,11 @@ class SubscriptionCatalog
 
     public static function offers(): Collection
     {
-        return self::purchasable()->orderBy('price')->orderBy('id')->get()->map(fn (ShopItem $item) => [
+        $offers = self::purchasable()->orderBy('price')->orderBy('id')->get();
+        $daily = DB::table('config')->where('category', 'daily_tokens')->whereIn('name', $offers->pluck('item')->unique())
+            ->orderBy('id')->pluck('value', 'name');
+
+        return $offers->map(fn (ShopItem $item) => [
             'id' => $item->id,
             'plan' => $item->item,
             'name' => $item->text_name,
@@ -33,6 +38,7 @@ class SubscriptionCatalog
             'stars' => PaymentService::stars($item->price),
             'description' => $item->description,
             'tag' => $item->tag,
+            'daily_tokens' => max(0, (int) ($daily[$item->item] ?? 0)),
         ]);
     }
 

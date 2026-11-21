@@ -3,32 +3,25 @@
     <div v-if="loading" class="spinner-row">Загружаем…</div>
     <div v-else-if="failed" class="empty pad"><h3>Не получилось загрузить</h3><button type="button" class="pill-btn" @click="load">Повторить</button></div>
     <template v-else>
-      <form class="adm-card glass" @submit.prevent="save(['packs'], 'Пакеты сохранены')">
+      <section class="adm-card glass">
         <h3>Пакеты токенов</h3>
-        <div v-for="(p, i) in v.packs" :key="i" class="adm-line">
-          <label class="adm-f">Токенов<input v-model.number="p.tokens" type="number" min="1" required></label>
-          <label class="adm-f">Цена, ₽<input v-model.number="p.price" type="number" min="1" step="any" required></label>
-          <label class="adm-f">Плашка<input v-model.trim="p.badge" maxlength="24" placeholder="Выгодно"></label>
-          <span class="adm-note" style="align-self:center">{{ stars(p.price) }} ⭐</span>
-          <button type="button" class="x" aria-label="Убрать пакет" @click="v.packs.splice(i, 1)"><svg class="ic-s" aria-hidden="true"><use href="#i-close" /></svg></button>
+        <p class="adm-note">Предложения из таблицы shop бота.</p>
+        <div v-for="p in v.packs" :key="p.id" class="adm-sub">
+          <b>{{ p.name }}</b>
+          <span class="adm-note">{{ p.tokens }} ток. · {{ p.price }} ₽ · {{ p.stars }} ⭐</span>
         </div>
-        <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button><button type="button" class="adm-btn soft" @click="v.packs.push({ tokens: 1000, price: 900, badge: '' })">Добавить пакет</button></div>
-      </form>
+        <p v-if="!v.packs?.length" class="adm-note">Активных пакетов нет.</p>
+      </section>
 
-      <form class="adm-card glass" @submit.prevent="save(['plans'], 'Тарифы сохранены')">
+      <section class="adm-card glass">
         <h3>Подписки</h3>
-        <div v-for="id in ['plus', 'pro']" :key="id" class="adm-sub">
-          <span class="ctl-label">Тариф {{ id }}</span>
-          <div class="adm-grid">
-            <label class="adm-f">Название<input v-model.trim="v.plans[id].name" required maxlength="24"></label>
-            <label class="adm-f">Цена за месяц, ₽<input v-model.number="v.plans[id].month" type="number" min="0" step="any" required></label>
-            <label class="adm-f">Месяц при оплате за год, ₽<input v-model.number="v.plans[id].year_month" type="number" min="0" step="any" required></label>
-            <label class="adm-f">Токенов в месяц<input v-model.number="v.plans[id].tokens" type="number" min="0" required></label>
-          </div>
-          <span class="adm-note">В звёздах: {{ stars(v.plans[id].month) }} ⭐ за месяц, {{ stars(v.plans[id].year_month * 12) }} ⭐ за год</span>
+        <p class="adm-note">Предложения из таблицы shop бота.</p>
+        <div v-for="offer in v.subscription_offers" :key="offer.id" class="adm-sub">
+          <b>{{ offer.name }}</b>
+          <span class="adm-note">{{ offer.days }} дн. · {{ offer.price }} ₽ · {{ offer.stars }} ⭐</span>
         </div>
-        <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
-      </form>
+        <p v-if="!v.subscription_offers?.length" class="adm-note">Активных предложений нет.</p>
+      </section>
 
       <form class="adm-card glass" @submit.prevent="save(['bonus'], 'Бонусы сохранены')">
         <h3>Бонусы, токенов</h3>
@@ -64,9 +57,8 @@ export default {
   mounted() { this.load() },
   methods: {
     load() { return this.fetch(async () => { this.v = (await adminApi.settings()).data }) },
-    stars(rub) { return Math.max(1, Math.ceil((Number(rub) || 0) / (Number(this.v.stars.rub_per_star) || 1))).toLocaleString('ru-RU') },
     save(keys, ok) {
-      const values = Object.fromEntries(keys.map((k) => [k, k === 'plans' ? { plus: this.v.plans.plus, pro: this.v.plans.pro } : this.v[k]]))
+      const values = Object.fromEntries(keys.map((k) => [k, this.v[k]]))
       return this.run(async () => { this.v = (await adminApi.saveSettings(values)).data; this.app.reloadCatalog() }, ok)
     },
   },

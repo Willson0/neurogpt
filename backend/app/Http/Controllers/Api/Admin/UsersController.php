@@ -8,11 +8,12 @@ use App\Http\Middleware\AdminOnly;
 use App\Models\Generation;
 use App\Models\Payment;
 use App\Models\User;
-use App\Services\Admin\Settings;
 use App\Services\Billing\Wallet;
+use App\Services\Payments\SubscriptionCatalog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -56,6 +57,7 @@ class UsersController extends Controller
             'data' => collect($page->items())->map(fn (User $u) => $this->user($u)),
             'next_page' => $page->hasMorePages() ? $page->currentPage() + 1 : null,
             'summary' => ['total' => $total],
+            'plans' => SubscriptionCatalog::names(),
         ]);
     }
 
@@ -63,14 +65,14 @@ class UsersController extends Controller
     {
         $data = $request->validate([
             'is_blocked' => ['sometimes', 'boolean'],
-            'plan' => ['sometimes', Rule::in(array_keys(config('neurogpt.plans')))],
-            'plan_days' => ['sometimes', 'integer', 'between:1,3660'],
+            'plan' => ['sometimes', Rule::in(array_keys(SubscriptionCatalog::names()))],
+            'plan_days' => [Rule::requiredIf($request->filled('plan') && $request->input('plan') !== 'free'), 'nullable', 'integer', 'between:1,3660'],
         ]);
         if (! empty($data['is_blocked']) && AdminOnly::allows($user)) {
             throw ValidationException::withMessages(['is_blocked' => 'Администратора заблокировать нельзя']);
         }
         if (isset($data['plan'])) {
-            $user->setPlan($data['plan'], $data['plan'] === 'free' ? null : now()->addDays((int) ($data['plan_days'] ?? 30)))->save();
+            $user->setPlan($data['plan'], $data['plan'] === 'free' ? null : now()->addDays((int) $data['plan_days']))->save();
         }
         if (array_key_exists('is_blocked', $data)) {
             $user->updateProfile(['is_blocked' => $data['is_blocked']]);
@@ -125,7 +127,10 @@ class UsersController extends Controller
         if (count(AdminOnly::added()) >= 50) {
             throw ValidationException::withMessages(['user' => 'Слишком много администраторов']);
         }
-        Settings::put('admins', [...AdminOnly::added(), $id]);
+        $username = User::whereKey($id)->value('username') ?? '';
+        if (! DB::table('admins')->insertOrIgnore(['id' => $id, 'username' => $username])) {
+            throw ValidationException::withMessages(['user' => 'Этот человек уже администратор']);
+        }
 
         return response()->json(['data' => $this->adminList()], 201);
     }
@@ -134,7 +139,7 @@ class UsersController extends Controller
     {
         abort_unless(AdminOnly::isOwner($request->user()), 403, 'Only the main admin can manage admins');
         abort_unless(in_array($telegramId, AdminOnly::added(), true), 404);
-        Settings::put('admins', array_values(array_diff(AdminOnly::added(), [$telegramId])));
+        DB::table('admins')->where('id', $telegramId)->delete();
 
         return response()->json(['data' => $this->adminList()]);
     }
@@ -143,11 +148,12 @@ class UsersController extends Controller
     {
         $ids = [...AdminOnly::owners(), ...AdminOnly::added()];
         $users = User::whereIn('id', $ids)->get()->keyBy('id');
+        $botNames = DB::table('admins')->whereIn('id', $ids)->pluck('username', 'id');
 
         return collect($ids)->unique()->values()->map(fn (int $id) => [
             'telegram_id' => $id,
             'name' => $users->get($id)?->displayName(),
-            'username' => $users->get($id)?->username,
+            'username' => $users->get($id)?->username ?: ($botNames[$id] ?? null),
             'is_owner' => in_array($id, AdminOnly::owners(), true),
             'opened_app' => $users->has($id),
         ])->all();
@@ -160,7 +166,7 @@ class UsersController extends Controller
         $this->period($gens, $f);
         $users = User::query();
         $this->period($users, $f);
-        $pays = Payment::query()->where('status', 'succeeded');
+        $pays = Payment::overview()->where('status', 'succeeded');
         $this->period($pays, $f);
 
         $since = now()->subDays(13)->startOfDay();

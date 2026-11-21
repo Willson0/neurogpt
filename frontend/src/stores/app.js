@@ -12,7 +12,6 @@ const FORMATS = [
   { ratio: '9:16', ar: 0.5625, w: 10, h: 17 },
   { ratio: '16:9', ar: 1.7778, w: 18, h: 10 },
 ]
-const PLAN_RANK = { free: 0, plus: 1, pro: 2 }
 /** The direct link to the admin panel: https://<app>/admin (a page of its own, admin.html). */
 export const adminLink = () => /^\/admin(\.html)?$/.test(location.pathname.replace(/\/+$/, ''))
 /** Leaves the Mini App for the admin page, optionally on a section. Telegram keeps initData across the navigation. */
@@ -28,7 +27,7 @@ export const useApp = defineStore('app', {
     photosets: [],
     news: [],
     packs: [],
-    plans: {},
+    subscriptionOffers: [],
     tools: [],
     styles: [],
     features: { songs: false },
@@ -67,8 +66,7 @@ export const useApp = defineStore('app', {
     history: { items: [], loaded: false },
     // billing
     packIndex: 1,
-    tier: 'pro',
-    period: 'month',
+    subscriptionOfferId: null,
     payMethod: 'card',
     payment: null, // pending payment being watched
     busy: false,
@@ -82,7 +80,12 @@ export const useApp = defineStore('app', {
     balance: (s) => s.user?.balance ?? 0,
     plan: (s) => s.user?.plan ?? 'free',
     isAdmin: (s) => !!s.user?.is_admin,
-    planName() { return this.plans[this.plan]?.name || 'Free' },
+    planName() { return this.user?.plan_name || (this.plan === 'free' ? 'Бесплатный' : this.plan) },
+    subscriptionOffer() {
+      return this.subscriptionOffers.find((offer) => offer.id === this.subscriptionOfferId)
+        || this.subscriptionOffers.find((offer) => offer.plan === this.plan)
+        || this.subscriptionOffers[0] || null
+    },
     /** Formats the current model supports: every one for pictures, the model's own list for video. */
     formats() {
       const allowed = this.mode === 'video' ? this.model.formats : null
@@ -112,7 +115,7 @@ export const useApp = defineStore('app', {
       return m.price
     },
     pack: (s) => s.packs[s.packIndex] || { tokens: 0, price: 0 },
-    isLocked: (s) => (m) => (PLAN_RANK[s.user?.plan] ?? 0) < (PLAN_RANK[m.min_plan] ?? 0),
+    isLocked: (s) => (m) => (m.is_sub ?? Boolean(m.min_plan && m.min_plan !== 'free')) && (!s.user?.plan || s.user.plan === 'free'),
     trends: (s) => s.photosets.filter((p) => p.trending),
   },
 
@@ -139,12 +142,18 @@ export const useApp = defineStore('app', {
       }
     },
     applyBootstrap(d) {
+      const firstLoad = !this.user
       this.user = d.user
       this.models = { image: [], video: [], song: [], ...d.models }
+      if (firstLoad) {
+        for (const kind of ['image', 'video']) {
+          if (d.selected_models?.[kind]) this.modelSel[kind] = d.selected_models[kind]
+        }
+      }
       this.photosets = d.photosets
       this.news = d.news
       this.packs = d.packs
-      this.plans = d.plans
+      this.subscriptionOffers = d.subscription_offers || []
       this.tools = d.tools || []
       this.styles = d.styles || []
       this.features = { songs: false, ...d.features }
@@ -156,7 +165,7 @@ export const useApp = defineStore('app', {
       theme.apply(d.theme)
       this.recent = d.recent
       this.botUsername = d.bot_username || ''
-      if (this.packIndex >= this.packs.length) this.packIndex = Math.min(1, this.packs.length - 1)
+      if (this.packIndex >= this.packs.length) this.packIndex = Math.max(0, Math.min(1, this.packs.length - 1))
       // the recommended video model that the plan allows is the default one
       if (!this.models.video.some((m) => m.id === this.modelSel.video)) {
         const open = this.models.video.filter((m) => !this.isLocked(m))
@@ -229,13 +238,15 @@ export const useApp = defineStore('app', {
       this.songDuration = steps[(steps.indexOf(this.songDuration) + 1) % steps.length]
       tg.haptic('selection')
     },
-    selectModel(kind, m) {
+    async selectModel(kind, m) {
       if (this.isLocked(m)) {
         tg.haptic('warning')
         this.closeSheet()
-        this.tier = m.min_plan === 'plus' ? 'plus' : 'pro'
         setTimeout(() => this.push('plans'), 200)
         return
+      }
+      if (m.bot_model && ['image', 'video'].includes(kind)) {
+        try { await api.selectModel(kind, m.id) } catch (error) { this.handleActionError(error); return }
       }
       this.modelSel[kind] = m.id
       tg.haptic('selection')
@@ -268,7 +279,7 @@ export const useApp = defineStore('app', {
       const photoset = extra.photoset || null
       const kind = this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
       if (kind === 'song' && this.songsOff) return this.toast('Песни скоро появятся', 'hourglass')
-      if (!photoset && this.isLocked(this.model)) { this.tier = this.model.min_plan === 'plus' ? 'plus' : 'pro'; this.toast('Модель доступна по подписке'); return this.push('plans') }
+      if (!photoset && this.isLocked(this.model)) { this.toast('Модель доступна по подписке'); return this.push('plans') }
       const cost = photoset ? this.models.image.find((m) => m.id === this.modelSel.image)?.price ?? this.model.price : this.cost
       if (this.balance < cost) { tg.haptic('warning'); return this.openSheet('need', { lack: cost - this.balance }) }
       if (this.busy) return
@@ -415,10 +426,13 @@ export const useApp = defineStore('app', {
     handleActionError(e) {
       if (e instanceof ApiError) {
         if (e.code === 'insufficient_balance') { tg.haptic('warning'); return this.openSheet('need', { lack: e.body.required - e.body.balance }) }
-        if (e.code === 'model_locked') { this.tier = e.body.plan === 'plus' ? 'plus' : 'pro'; this.push('plans'); return this.toast('Нужна подписка') }
+        if (e.code === 'model_locked') { this.push('plans'); return this.toast('Нужна подписка') }
         if (e.code === 'coming_soon') return this.toast('Песни скоро появятся', 'hourglass')
         if (e.code === 'too_many_active') return this.toast('Дождитесь текущих генераций', 'hourglass')
-        if (e.code === 'plan_downgrade') return this.toast('У вас уже тариф выше')
+        if (['subscription_offer_changed', 'token_offer_changed'].includes(e.code)) {
+          this.reloadCatalog()
+          return this.toast('Предложение изменилось. Проверьте цену и срок.')
+        }
         if (e.code === 'payment_error') return this.toast('Не удалось создать платёж', 'cry')
         if (e.status === 413) return this.toast(`Фото больше ${this.limits.upload_mb} МБ`, 'cry')
         if (e.status === 422) return this.toast(Object.values(e.body.errors || {}).flat()[0] || 'Проверьте запрос')
@@ -439,14 +453,16 @@ export const useApp = defineStore('app', {
     // ---------- billing ----------
     async pay(kind) {
       if (this.busy) return
+      if (kind === 'plan' && !this.subscriptionOffer) return
+      if (kind === 'topup' && !this.pack.id) return
       const method = this.method
       if (!method) return this.toast('Оплата временно недоступна', 'cry')
       if (method === 'stars' && !tg.canInvoice) return this.toast('Оплата звёздами работает в Telegram')
       this.busy = true
       try {
         const r = kind === 'topup'
-          ? await api.topup(this.pack.tokens, method)
-          : await api.buyPlan(this.tier, this.period, method)
+          ? await api.topup(this.pack, method)
+          : await api.buyPlan(this.subscriptionOffer, method)
         this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, startedAt: Date.now() }
         if (method === 'stars') {
           this.busy = false

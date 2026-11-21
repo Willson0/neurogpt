@@ -15,8 +15,6 @@ class Settings
 {
     /** key => true when the stored array is merged over the defaults instead of replacing them. */
     public const KEYS = [
-        'packs' => false,
-        'plans' => false,
         'bonus' => true,
         'limits' => true,
         'features' => true,
@@ -31,8 +29,6 @@ class Settings
         'providers.kie.translate' => false,
         // YooKassa shop settings. The secret key is stored encrypted (secret_key_enc) and changed only by an owner.
         'yookassa' => true,
-        // Telegram ids of admins added in the panel. Changed only through /api/admin/admins, by an owner.
-        'admins' => false,
         // Catalog rows the admin deleted, so the seeder does not bring them back.
         'deleted' => false,
     ];

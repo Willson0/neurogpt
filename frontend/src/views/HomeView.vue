@@ -2,7 +2,7 @@
   <div class="view" data-view="home" :data-mode="app.mode">
     <div class="topbar">
       <BalanceButton />
-      <button type="button" :class="['plan', 'glass', app.plan === 'pro' ? 'pro' : '']" @click="app.push('plans')">
+      <button type="button" :class="['plan', 'glass', app.plan !== 'free' ? 'pro' : '']" @click="app.push('plans')">
         <svg class="ic-s" aria-hidden="true"><use href="#i-crown" /></svg><span>{{ app.planName }}</span>
       </button>
     </div>

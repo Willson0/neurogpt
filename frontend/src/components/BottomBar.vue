@@ -52,7 +52,7 @@ export default {
     hasPrompt() { return this.app.prompt.trim().length > 0 },
     short() { return this.app.balance < this.app.cost },
     emptyGallery() { return this.app.current === 'gallery' && !this.app.photosets.length },
-    composing() { return this.app.mode !== 'tools' && !(this.app.mode === 'song' && this.app.songsOff) },
+    composing() { return ['image', 'video'].includes(this.app.mode) },
     ctaOpen() { return (this.app.current === 'home' && this.composing && this.hasPrompt) || this.emptyGallery },
     ctaAria() { return this.ctaOpen ? 'Создать' : 'Новая генерация' },
     native() { return tg.hasMainButton },
@@ -115,6 +115,10 @@ export default {
         return a.start()
       }
       if (this.emptyGallery) { a.goTab('home'); return }
+      if (a.current === 'home' && a.mode === 'song' && !a.songsOff) {
+        a.musicComposeRequest++
+        return
+      }
       tg.haptic('light')
       if (a.current !== 'home') a.goTab('home')
       if (!this.composing) a.setMode('image')

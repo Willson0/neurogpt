@@ -51,7 +51,9 @@ class GenerationService
             'tool' => (int) $toolCfg['cost'],
             'video' => (int) ceil($model->price * ($model->durations()[$params['duration']] ?? 1)),
             // Songs are priced per 30 seconds: 30 s = 1x, 60 s = 2x, 120 s = 4x.
-            'song' => (int) ($model->price * max(1, intdiv((int) ($params['duration'] ?? 30), 30))),
+            'song' => isset($data['music'])
+                ? (int) config('neurogpt.music.prices.'.$data['music']['operation'], $model->price)
+                : (int) ($model->price * max(1, intdiv((int) ($params['duration'] ?? 30), 30))),
             default => $model->price,
         };
         if ($free) {
@@ -69,10 +71,18 @@ class GenerationService
             throw new InsufficientBalance($unit * $count, $user->balance);
         }
 
-        $inputPath = $this->storeInput($user, $file, $data['source_generation_id'] ?? null);
+        $inputPath = isset($data['music'])
+            ? $this->storeAudio($user, $file)
+            : $this->storeInput($user, $file, $data['source_generation_id'] ?? null);
 
         try {
             $created = DB::transaction(function () use ($user, $kind, $model, $photoset, $tool, $prompt, $params, $inputPath, $unit, $count) {
+                User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $limit = (int) config('neurogpt.limits.active_generations');
+                $active = Generation::where('user_id', $user->id)->whereIn('status', ['queued', 'processing'])->count();
+                if ($active + $count > $limit) {
+                    throw new TooManyActive($limit);
+                }
                 $rows = [];
                 for ($i = 0; $i < $count; $i++) {
                     $g = Generation::create([
@@ -144,6 +154,9 @@ class GenerationService
         }
 
         if ($kind === 'song') {
+            if (isset($data['music'])) {
+                return ['music' => $data['music']];
+            }
             $params['duration'] = (int) ($data['duration'] ?? 30);
         }
 
@@ -162,6 +175,28 @@ class GenerationService
         }
 
         return array_filter($params, fn ($v) => $v !== null && $v !== '');
+    }
+
+    private function storeAudio(User $user, ?UploadedFile $file): ?string
+    {
+        if (! $file) {
+            return null;
+        }
+        $ext = match ($file->getMimeType()) {
+            'audio/mpeg' => 'mp3',
+            'audio/mp4' => 'm4a',
+            'audio/aac' => 'aac',
+            'audio/ogg' => 'ogg',
+            'audio/flac', 'audio/x-flac' => 'flac',
+            'audio/webm', 'video/webm' => 'webm',
+            default => 'wav',
+        };
+        $path = Storage::disk('local')->putFileAs('inputs/'.$user->id, $file, Str::uuid().'.'.$ext);
+        if (! $path) {
+            throw ValidationException::withMessages(['file' => 'Не удалось сохранить аудиофайл']);
+        }
+
+        return $path;
     }
 
     /** Saves the upload (re-encoded, metadata stripped) or copies the user's own finished picture. */
@@ -199,7 +234,7 @@ class GenerationService
     /** Only a queued job can be cancelled; once it runs the provider has been paid. */
     public function cancel(Generation $g): bool
     {
-        return DB::transaction(function () use ($g) {
+        $cancelled = DB::transaction(function () use ($g) {
             $locked = Generation::query()->whereKey($g->id)->lockForUpdate()->firstOrFail();
             if ($locked->status !== 'queued') {
                 return false;
@@ -212,5 +247,11 @@ class GenerationService
 
             return true;
         });
+
+        if ($cancelled && isset($g->params['music']) && $g->input_path) {
+            Storage::disk('local')->delete($g->input_path);
+        }
+
+        return $cancelled;
     }
 }

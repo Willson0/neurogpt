@@ -74,6 +74,20 @@ export const api = {
   },
   updateGeneration: (id, patch) => request('PATCH', `/generations/${id}`, { json: patch }),
   cancelGeneration: (id) => request('POST', `/generations/${id}/cancel`),
+  musicProfiles: () => request('GET', '/music/profiles'),
+  createMusic: (fields, file) => {
+    const values = clean(fields)
+    if (!file) return request('POST', '/music', { json: values })
+    const form = new FormData()
+    for (const [key, value] of Object.entries(values)) {
+      if (Array.isArray(value)) value.forEach((item) => form.append(key + '[]', item))
+      else form.append(key, typeof value === 'boolean' ? Number(value) : value)
+    }
+    form.append('file', file)
+    return request('POST', '/music', { form })
+  },
+  musicDownload: (id, track) => blobUrl(`/music/${id}/tracks/${track}/download`),
+  sendTrack: (id, track) => request('POST', `/music/${id}/tracks/${track}/send`),
   improvePrompt: (prompt, kind) => request('POST', '/prompt/improve', { json: { prompt, kind } }),
   topup: (tokens, method) => request('POST', '/payments/topup', { json: { tokens, method } }),
   buyPlan: (plan, period, method) => request('POST', '/payments/plan', { json: { plan, period, method } }),

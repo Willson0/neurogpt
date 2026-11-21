@@ -12,7 +12,7 @@ class Generation extends Model
     protected $fillable = [
         'user_id', 'query_log_id', 'kind', 'ai_model_id', 'photoset_id', 'tool', 'prompt', 'params', 'input_path', 'provider_task_id',
         'cost', 'status', 'result_path', 'result_text', 'error', 'is_favorite', 'rating',
-        'started_at', 'finished_at',
+        'started_at', 'finished_at', 'music_result',
     ];
 
     /** The full instruction for the provider, built by PromptBuilder right before the job runs. */
@@ -27,6 +27,7 @@ class Generation extends Model
     {
         return [
             'params' => 'array',
+            'music_result' => 'array',
             'cost' => 'integer',
             'is_favorite' => 'boolean',
             'started_at' => 'datetime',
@@ -61,6 +62,7 @@ class Generation extends Model
             $this->photoset_id !== null => 'Фотосет «'.($this->photoset?->name ?? '…').'»',
             $this->kind === 'tool' => (string) (config("neurogpt.tools.{$this->tool}.name") ?? 'Инструмент'),
             $this->kind === 'video' => 'Видео',
+            isset($this->params['music']) => $this->params['music']['label'],
             $this->kind === 'song' => 'Песня',
             default => 'Картинка',
         };

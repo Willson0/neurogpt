@@ -1,5 +1,5 @@
 <template>
-  <div class="view" :data-view="'home'">
+  <div class="view" data-view="home" :data-mode="app.mode">
     <div class="topbar">
       <BalanceButton />
       <button type="button" :class="['plan', 'glass', app.plan === 'pro' ? 'pro' : '']" @click="app.push('plans')">
@@ -13,7 +13,7 @@
       <button type="button" class="pill-btn" @click="app.push('plans')">Продлить</button>
     </div>
 
-    <h1 class="hero-h">Что создадим?<small>Напишите идею, остальное сделаем сами</small></h1>
+    <h1 v-if="app.mode !== 'song'" class="hero-h">Что создадим?<small>Напишите идею, остальное сделаем сами</small></h1>
 
     <div class="home-a">
     <LensBar :active="app.mode" label="Что создаём">
@@ -26,6 +26,8 @@
       <p>Песни с вокалом по вашему тексту уже в работе. Сообщим в чате с ботом, когда запустим.</p>
       <button type="button" class="pill-btn" @click="app.setMode('video')"><svg class="ic-s" aria-hidden="true"><use href="#i-video" /></svg>Попробовать видео</button>
     </div>
+
+    <MusicStudio v-else-if="app.mode === 'song'" />
 
     <div v-else-if="app.mode !== 'tools'" class="prompt glass">
       <label for="prompt" class="visually-hidden">Запрос</label>
@@ -44,15 +46,12 @@
         <button v-if="app.mode === 'video'" type="button" class="pill-btn" @click="app.toggleDuration()">
           <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ app.durationOpt ? app.durationOpt.seconds : app.duration }} секунд</span>
         </button>
-        <button v-if="app.mode === 'song'" type="button" class="pill-btn" @click="app.cycleSongDuration()">
-          <svg class="ic-s" aria-hidden="true"><use href="#i-timer" /></svg><span>{{ songLabel }}</span>
-        </button>
         <span class="grow" />
         <button type="button" class="pill-btn hot" :disabled="app.improving" @click="improve"><svg class="ic-s" aria-hidden="true"><use href="#i-wand" /></svg>Улучшить</button>
       </div>
     </div>
 
-    <ul v-if="!songSoon && app.mode !== 'tools'" class="list glass">
+    <ul v-if="['image', 'video'].includes(app.mode)" class="list glass">
       <li>
         <button type="button" class="row" @click="app.openSheet('models')">
           <span class="sq hot"><svg class="ic-s" aria-hidden="true"><use href="#i-bolt" /></svg></span>
@@ -80,7 +79,7 @@
     </ul>
 
     </div>
-    <div class="home-b">
+    <div v-if="app.mode !== 'song'" class="home-b">
     <div v-if="app.trends.length" class="group" style="display:grid;gap:var(--space-sm)">
       <div class="sec-head"><h2>В тренде</h2></div>
       <div v-drag-scroll class="trends">
@@ -118,6 +117,7 @@ import LensBar from '../components/LensBar.vue'
 import Sticker from '../components/Sticker.vue'
 import ArtCanvas from '../components/ArtCanvas.vue'
 import NewsDeck from '../components/NewsDeck.vue'
+import MusicStudio from '../components/MusicStudio.vue'
 
 const ago = (iso) => {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
@@ -126,7 +126,7 @@ const ago = (iso) => {
 
 export default {
   name: 'HomeView',
-  components: { BalanceButton, LensBar, Sticker, ArtCanvas, NewsDeck },
+  components: { BalanceButton, LensBar, Sticker, ArtCanvas, NewsDeck, MusicStudio },
   data: () => ({
     modes: [
       { id: 'image', label: 'Фото' }, { id: 'video', label: 'Видео' }, { id: 'song', label: 'Песня' }, { id: 'tools', label: 'Ещё' },
@@ -134,7 +134,6 @@ export default {
     placeholders: {
       image: 'Кот-космонавт в стиле акварели',
       video: 'Волны на закате, камера летит вдоль берега',
-      song: 'Нежная песня про первый снег и тёплый чай',
     },
     toolIcons: { upscale: 'upscale', remove_bg: 'eraser', animate: 'video' },
   }),
@@ -142,10 +141,6 @@ export default {
     app() { return useApp() },
     songSoon() { return this.app.mode === 'song' && this.app.songsOff },
     hasRef() { return this.app.mode === 'image' || this.app.mode === 'video' },
-    songLabel() {
-      const d = this.app.songDuration
-      return d >= 60 ? `${d / 60} ${d === 60 ? 'минута' : 'минуты'}` : `${d} секунд`
-    },
     expiresIn() {
       const u = this.app.user
       if (!u || u.plan === 'free' || !u.plan_expires_at) return null

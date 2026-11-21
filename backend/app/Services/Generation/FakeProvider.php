@@ -18,7 +18,24 @@ class FakeProvider implements Provider
     public function media(Generation $generation, AiModel $model, ?string $inputPath): MediaResult
     {
         if ($generation->kind === 'song') {
-            return $this->tone((int) ($generation->params['duration'] ?? 30));
+            $music = $generation->params['music'] ?? null;
+            if ($music) {
+                $data = match ($music['operation']) {
+                    'lyrics' => ['lyrics' => [['title' => 'Пробный текст', 'text' => "[Verse]\n".$music['input']['prompt']."\n\n[Chorus]\nМузыка звучит"]]],
+                    'boost_style' => ['style' => mb_substr($music['input']['content'].', warm textures, steady rhythm and a clear melody', 0, 1000)],
+                    'voice_phrase', 'voice_retry' => ['phrase' => 'This is my own singing voice. '.$generation->id, 'voice_task' => 'dev-'.$generation->id],
+                    'persona', 'voice_create' => ['profile_id' => 'dev-'.$generation->id, 'profile_type' => $music['operation'] === 'persona' ? 'style_persona' : 'voice_persona', 'name' => $music['name']],
+                    default => [],
+                };
+                if ($data) {
+                    return new MediaResult('', '', $data);
+                }
+                if ($music['operation'] !== 'cover') {
+                    return $this->tone($music['input']['duration'] ?? 6);
+                }
+            } else {
+                return $this->tone((int) ($generation->params['duration'] ?? 30));
+            }
         }
 
         mt_srand($generation->id * 7919);
@@ -36,6 +53,16 @@ class FakeProvider implements Provider
           <circle cx="{$this->r($w)}" cy="{$this->r($h)}" r="{$this->r(min($w, $h) / 4)}" fill="{$c()}" opacity=".45"/>
         </svg>
         SVG;
+
+        if (($generation->params['music']['operation'] ?? null) === 'cover') {
+            $preview = imagecreatetruecolor(400, 400);
+            imagefill($preview, 0, 0, imagecolorallocate($preview, 80, 27, 55));
+            imagefilledellipse($preview, 200, 200, 260, 260, imagecolorallocate($preview, 247, 113, 82));
+            ob_start();
+            imagepng($preview);
+
+            return new MediaResult((string) ob_get_clean(), 'png', ['cover' => true]);
+        }
 
         return new MediaResult($svg, 'svg');
     }

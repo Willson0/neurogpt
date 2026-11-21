@@ -32,6 +32,10 @@ export const useApp = defineStore('app', {
     tools: [],
     styles: [],
     features: { songs: false },
+    musicPrices: {},
+    musicDraft: null,
+    musicFocus: null,
+    musicComposeRequest: 0,
     payments: { card: false, stars: false },
     limits: { upload_mb: 10 },
     supportUrl: null,
@@ -144,6 +148,7 @@ export const useApp = defineStore('app', {
       this.tools = d.tools || []
       this.styles = d.styles || []
       this.features = { songs: false, ...d.features }
+      this.musicPrices = d.music_prices || {}
       this.payments = { card: false, stars: false, ...d.payments }
       this.limits = { upload_mb: 10, ...d.limits }
       this.supportUrl = d.support_url || null
@@ -301,6 +306,12 @@ export const useApp = defineStore('app', {
       this.pollGeneration()
     },
     openResult(g) {
+      if (g.kind === 'song' && !this.songsOff) {
+        this.musicFocus = g.id
+        this.mode = 'song'
+        if (this.current !== 'home') this.goTab('home')
+        return
+      }
       const final = ['done', 'failed', 'cancelled'].includes(g.status)
       this.gen = {
         ids: [g.id], items: [g], done: final, failed: g.status !== 'done' && final, filtered: false,

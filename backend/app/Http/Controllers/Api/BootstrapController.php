@@ -21,7 +21,8 @@ class BootstrapController extends Controller
         $stars = fn ($rub) => PaymentService::stars($rub);
         $songs = (bool) config('neurogpt.features.songs');
 
-        $models = AiModel::active()->whereIn('kind', $songs ? ['image', 'video', 'song'] : ['image', 'video'])->get();
+        $models = AiModel::active()->whereIn('kind', $songs ? ['image', 'video', 'song'] : ['image', 'video'])->get()
+            ->filter(fn (AiModel $m) => $m->kind !== 'song' || isset(\App\Services\Generation\MusicStudio::MODELS[$m->slug]));
         $activeTools = AiModel::active()->where('kind', 'tool')->pluck('slug')->all();
 
         return response()->json([
@@ -56,6 +57,7 @@ class BootstrapController extends Controller
             'bonus' => config('neurogpt.bonus'),
             'theme' => config('neurogpt.theme'),
             'features' => ['songs' => $songs],
+            'music_prices' => $songs ? config('neurogpt.music.prices') : [],
             'payments' => $methods,
             'limits' => ['upload_mb' => (int) floor(config('neurogpt.upload_max_kb') / 1024)],
             'recent' => GenerationResource::collection(

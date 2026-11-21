@@ -103,6 +103,19 @@ class DatabaseSeeder extends Seeder
             ], "model:song:$slug");
         }
 
+        foreach ([
+            ['suno-v6', 'Suno V6', 'Основная модель для песен', 30],
+            ['suno-v6-mini', 'Suno V6 Mini', 'Быстрые наброски', 20],
+            ['suno-v6-wild', 'Suno V6 Wild', 'Эксперименты и MIDI-референсы', 50],
+        ] as $i => [$slug, $name, $hint, $price]) {
+            $this->sync(AiModel::class, ['kind' => 'song', 'slug' => $slug], [
+                'name' => $name, 'hint' => $hint, 'price' => $price,
+                'is_fast' => $i === 1, 'min_plan' => 'free', 'driver' => $kieDriver,
+                'provider_model' => 'ai-music-api/generate', 'sort' => $i + 10,
+                'is_active' => (bool) config('neurogpt.features.songs'),
+            ], "model:song:$slug");
+        }
+
         // ---- tools of the "Ещё" tab ----
         $sort = 0;
         foreach (config('neurogpt.tools') as $slug => $t) {

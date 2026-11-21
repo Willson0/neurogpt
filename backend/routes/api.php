@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Route;
 // Called by Telegram / YooKassa, no user session. Telegram is checked by its secret header, YooKassa by IP.
 Route::post('telegram/webhook', TelegramWebhookController::class)->middleware('throttle:webhook');
 Route::post('payments/yookassa/webhook', [PaymentController::class, 'webhook'])->middleware(['throttle:webhook', YooKassaIp::class]);
+Route::get('music/download/{generation}/{track}', [\App\Http\Controllers\Api\MusicController::class, 'signedDownload'])
+    ->whereNumber(['generation', 'track'])->middleware(['throttle:guard', 'signed'])->name('music.download');
 
 // What the app needs before sign-in: the bot for the browser login button and the color theme.
 Route::get('config', fn () => response()->json([
@@ -39,6 +41,10 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::get('generations/{generation}', [GenerationController::class, 'show'])->whereNumber('generation');
     Route::patch('generations/{generation}', [GenerationController::class, 'update'])->whereNumber('generation');
     Route::post('generations/{generation}/cancel', [GenerationController::class, 'cancel'])->whereNumber('generation');
+    Route::post('music', [\App\Http\Controllers\Api\MusicController::class, 'store'])->middleware('throttle:generate');
+    Route::get('music/profiles', [\App\Http\Controllers\Api\MusicController::class, 'profiles']);
+    Route::get('music/{generation}/tracks/{track}/download', [\App\Http\Controllers\Api\MusicController::class, 'download'])->whereNumber(['generation', 'track']);
+    Route::post('music/{generation}/tracks/{track}/send', [\App\Http\Controllers\Api\MusicController::class, 'send'])->whereNumber(['generation', 'track'])->middleware('throttle:generate');
     Route::post('prompt/improve', [GenerationController::class, 'improve'])->middleware('throttle:improve');
 
     Route::get('chats', [ChatController::class, 'index']);

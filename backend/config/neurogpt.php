@@ -123,6 +123,20 @@ return [
         'songs' => (bool) env('FEATURE_SONGS', false),
     ],
 
+    'music' => [
+        'prices' => [
+            'lyrics' => max(0, (int) env('MUSIC_LYRICS_TOKENS', 5)),
+            'cover' => max(0, (int) env('MUSIC_COVER_TOKENS', 15)),
+            'persona' => max(0, (int) env('MUSIC_PERSONA_TOKENS', 5)),
+            'boost_style' => max(0, (int) env('MUSIC_STYLE_TOKENS', 5)),
+            'wav' => max(0, (int) env('MUSIC_WAV_TOKENS', 5)),
+            'stems' => max(0, (int) env('MUSIC_STEMS_TOKENS', 30)),
+            'voice_phrase' => 0,
+            'voice_retry' => 0,
+            'voice_create' => 0,
+        ],
+    ],
+
     /*
      | Image styles: the id travels from the app, the text goes into the provider prompt.
      */
@@ -279,6 +293,7 @@ return [
         'kie' => [
             'base_url' => env('KIE_BASE_URL', 'https://api.kie.ai'),
             'upload_url' => env('KIE_UPLOAD_URL', 'https://kieai.redpandaai.co/api/file-base64-upload'),
+            'stream_upload_url' => env('KIE_STREAM_UPLOAD_URL', 'https://kieai.redpandaai.co/api/file-stream-upload'),
             'api_key' => $kieKey,
             // Translate prompts to English with the text model before sending them to video models.
             'translate' => (bool) env('KIE_TRANSLATE_PROMPT', true),

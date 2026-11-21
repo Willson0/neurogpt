@@ -30,6 +30,7 @@ class GenerationRunner
         private readonly Wallet $wallet,
         private readonly Bot $bot,
         private readonly BotSync $botSync,
+        private readonly KieMusic $music,
     ) {}
 
     public function start(int $id, ?string $queue = null): void
@@ -47,13 +48,22 @@ class GenerationRunner
             if (! $g->model) {
                 throw new ProviderUnavailable('The model was removed');
             }
-            $g->finalPrompt = $this->prompts->for($g);
+            if (! isset($g->params['music'])) {
+                $g->finalPrompt = $this->prompts->for($g);
+            }
             $provider = $this->providers->for($g->model);
             $inputPath = $g->input_path ? Storage::disk('local')->path($g->input_path) : null;
 
             if ($provider instanceof AsyncProvider) {
-                $taskId = $provider->submit($g, $g->model, $inputPath);
-                $g->update(['provider_task_id' => $taskId]);
+                $submitted = $provider instanceof KieProvider && in_array($g->params['music']['operation'] ?? null, ['persona', 'boost_style'], true)
+                    ? $provider->musicMetadata($g)
+                    : $provider->submit($g, $g->model, $inputPath);
+                if ($submitted instanceof MediaResult) {
+                    $this->complete($g, $submitted);
+
+                    return;
+                }
+                $g->update(['provider_task_id' => $submitted]);
                 PollGeneration::dispatch($g->id)->onQueue($queue)->delay(now()->addSeconds(6));
 
                 return;
@@ -110,6 +120,12 @@ class GenerationRunner
 
     public function complete(Generation $g, MediaResult $result): void
     {
+        if (isset($g->params['music'])) {
+            $this->completeMusic($g, $result);
+
+            return;
+        }
+
         $path = 'generations/'.Str::uuid().'.'.$result->extension;
         Storage::disk('public')->put($path, $result->bytes);
 
@@ -131,6 +147,85 @@ class GenerationRunner
             Log::warning('Result was not delivered to the chat', ['id' => $g->id, 'error' => Bot::scrub($e->getMessage())]);
         }
         $this->rewardReferrer($g->user);
+    }
+
+    private function completeMusic(Generation $g, MediaResult $result): void
+    {
+        $stored = [];
+        $music = $result->music;
+        try {
+            foreach ($result->tracks as $track) {
+                $audio = $this->music->audio($track['url']);
+                unset($track['url']);
+                $track['path'] = $this->saveMusicFile($audio);
+                $stored[] = $track['path'];
+                $music['tracks'][] = $track;
+            }
+            if ($result->bytes !== '') {
+                $stored[] = $path = $this->saveMusicFile($result);
+                if (($g->params['music']['operation'] ?? null) !== 'cover') {
+                    $music['tracks'][] = ['path' => $path, 'title' => $g->params['music']['name'] ?? $g->title()];
+                }
+            }
+            $won = Generation::whereKey($g->id)->where('status', 'processing')->update([
+                'status' => 'done', 'result_path' => $stored[0] ?? null, 'finished_at' => now(),
+                'music_result' => json_encode($music, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE),
+            ]);
+        } catch (Throwable $e) {
+            Storage::disk('public')->delete($stored);
+            $this->fail($g, $e);
+
+            return;
+        }
+        if (! $won) {
+            Storage::disk('public')->delete($stored);
+
+            return;
+        }
+
+        $this->forgetInput($g);
+        if (! empty($music['tracks'])) {
+            $this->logToBot($g, $stored[0]);
+            $this->rewardReferrer($g->user);
+            if ($g->params['music']['auto_send']) {
+                foreach ($music['tracks'] as $track) {
+                    try {
+                        $this->sendTrack($g, $track);
+                    } catch (Throwable $e) {
+                        Log::warning('Track was not delivered to Telegram', ['id' => $g->id, 'error' => Bot::scrub($e->getMessage())]);
+                    }
+                }
+            }
+        }
+    }
+
+    private function saveMusicFile(MediaResult $file): string
+    {
+        $path = 'generations/'.Str::uuid().'.'.$file->extension;
+        if (! Storage::disk('public')->put($path, $file->bytes)) {
+            throw new \RuntimeException('Cannot store music result');
+        }
+
+        return $path;
+    }
+
+    public function sendTrack(Generation $generation, array $track): bool
+    {
+        $disk = Storage::disk('public');
+        $path = $track['path'];
+        $chatId = $generation->user->telegram_id;
+        $title = Str::limit($track['title'] ?: 'NeuroGPT', 100);
+        if ($disk->size($path) > 48_000_000) {
+            return $this->bot->sendMessage($chatId, $title."\n".$disk->url($path)) !== null;
+        }
+        $bytes = $disk->get($path);
+        $ext = pathinfo($path, PATHINFO_EXTENSION);
+        $filename = 'neurogpt-'.$generation->id.'.'.$ext;
+        if (in_array($ext, ['mp3', 'm4a'], true) && $this->bot->sendAudio($chatId, $bytes, $filename, $title) !== null) {
+            return true;
+        }
+
+        return $this->bot->sendDocument($chatId, $bytes, $filename, $title) !== null;
     }
 
     public function fail(Generation $g, Throwable $e): void

@@ -22,6 +22,8 @@ class KieProvider implements AsyncProvider, Provider
 {
     private const MAX_RESULT_BYTES = 80 * 1024 * 1024;
 
+    public function __construct(private readonly KieMusic $music) {}
+
     private function http(int $timeout = 60): PendingRequest
     {
         $key = config('neurogpt.providers.kie.api_key');
@@ -60,27 +62,57 @@ class KieProvider implements AsyncProvider, Provider
 
     public function submit(Generation $generation, AiModel $model, ?string $inputPath): string
     {
-        $imageUrl = $inputPath ? $this->upload($inputPath) : null;
-        $input = $this->input($generation, $model, $imageUrl);
+        $payload = isset($generation->params['music'])
+            ? $this->music->request($generation, $inputPath ? $this->uploadAudio($inputPath) : null)
+            : ['model' => $model->provider_model, 'input' => $this->input($generation, $model, $inputPath ? $this->upload($inputPath) : null)];
+        return $this->taskId($this->create($payload));
+    }
 
-        $res = $this->http()->post($this->url('/api/v1/jobs/createTask'), [
-            'model' => $model->provider_model,
-            'input' => $input,
-        ]);
+    private function taskId(array $data): string
+    {
+        $taskId = $data['taskId'] ?? null;
+        if ((! is_string($taskId) && ! is_int($taskId)) || (string) $taskId === '') {
+            throw new RuntimeException('kie.ai returned no task ID');
+        }
+
+        return (string) $taskId;
+    }
+
+    public function musicMetadata(Generation $generation): string|MediaResult
+    {
+        $result = $this->create($this->music->request($generation, null));
+        $music = $generation->params['music'];
+        if ($music['operation'] === 'boost_style') {
+            return ! empty($result['result']) ? $this->music->style($result['result']) : $this->taskId($result);
+        }
+
+        return $this->music->profile((string) ($result['persona_id'] ?? ''), 'style_persona', $music['name']);
+    }
+
+    private function create(array $payload): array
+    {
+        $res = $this->http()->post($this->url('/api/v1/jobs/createTask'), $payload);
         $body = $res->json() ?? [];
         $code = (int) ($body['code'] ?? $res->status());
-        $taskId = $body['data']['taskId'] ?? null;
-
-        if ($code !== 200 || ! is_string($taskId) || $taskId === '') {
+        if ($code !== 200) {
             $this->refuse($code, (string) ($body['msg'] ?? 'createTask failed'));
         }
 
-        return $taskId;
+        return $body['data'] ?? [];
     }
 
     public function fetch(Generation $generation, AiModel $model): ?MediaResult
     {
-        $res = $this->http(30)->get($this->url('/api/v1/jobs/recordInfo'), ['taskId' => $generation->provider_task_id]);
+        $music = $generation->params['music'] ?? null;
+        $taskId = $music ? $this->music->recordId($generation) : $generation->provider_task_id;
+        try {
+            $res = $this->http(30)->get($this->url('/api/v1/jobs/recordInfo'), ['taskId' => $taskId]);
+        } catch (\Illuminate\Http\Client\ConnectionException $exception) {
+            if ($music) {
+                return null;
+            }
+            throw $exception;
+        }
         $body = $res->json() ?? [];
         $code = (int) ($body['code'] ?? $res->status());
 
@@ -96,15 +128,18 @@ class KieProvider implements AsyncProvider, Provider
         $data = $body['data'] ?? [];
         $state = $data['state'] ?? '';
 
-        if ($state === 'fail') {
+        if ($state === 'fail' && ($music['operation'] ?? null) !== 'voice_retry') {
             $this->refuse((int) ($data['failCode'] ?? 501), (string) ($data['failMsg'] ?? 'Generation failed'));
+        }
+        $result = $data['resultJson'] ?? null;
+        $result = is_string($result) ? json_decode($result, true) : $result;
+        if ($music) {
+            return $this->music->finished($generation, $data, is_array($result) ? $result : []);
         }
         if ($state !== 'success') {
             return null;
         }
 
-        $result = $data['resultJson'] ?? null;
-        $result = is_string($result) ? json_decode($result, true) : $result;
         $url = self::resultUrl(is_array($result) ? $result : []) ?? self::resultUrl(is_array($data['response'] ?? null) ? $data['response'] : []);
         if (! $url) {
             throw new RuntimeException('kie.ai returned no file');
@@ -180,6 +215,28 @@ class KieProvider implements AsyncProvider, Provider
 
         if ((int) ($body['code'] ?? $res->status()) !== 200 || ! is_string($url) || ! str_starts_with($url, 'https://')) {
             $this->refuse((int) ($body['code'] ?? $res->status()), 'file upload: '.($body['msg'] ?? 'no link'));
+        }
+
+        return $url;
+    }
+
+    private function uploadAudio(string $path): string
+    {
+        $stream = fopen($path, 'rb');
+        if (! $stream) {
+            throw new RuntimeException('Cannot read music upload');
+        }
+        try {
+            $response = $this->http(120)->attach('file', $stream, basename($path))
+                ->post(config('neurogpt.providers.kie.stream_upload_url'), ['uploadPath' => 'neurogpt/music']);
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+        $url = $response->json('data.downloadUrl');
+        if ((int) ($response->json('code') ?? $response->status()) !== 200 || ! is_string($url) || ! str_starts_with($url, 'https://')) {
+            $this->refuse((int) ($response->json('code') ?? $response->status()), 'audio upload failed');
         }
 
         return $url;

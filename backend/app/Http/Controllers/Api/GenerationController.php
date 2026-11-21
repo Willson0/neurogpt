@@ -22,6 +22,7 @@ class GenerationController extends Controller
         $filters = $request->validate([
             'kind' => ['nullable', Rule::in(['image', 'video', 'tool', 'song'])],
             'favorites' => ['nullable', 'boolean'],
+            'include_failed' => ['nullable', 'boolean'],
         ]);
 
         $q = Generation::with('photoset')->where('user_id', $request->user()->id)->latest('id');
@@ -32,7 +33,9 @@ class GenerationController extends Controller
             $q->where('kind', $filters['kind']);
         }
         // The gallery shows results; failed and cancelled rows live in the operations history.
-        $q->whereIn('status', ['done', 'queued', 'processing']);
+        if (($filters['kind'] ?? null) !== 'song' || ! $request->boolean('include_failed')) {
+            $q->whereIn('status', ['done', 'queued', 'processing']);
+        }
 
         $page = $q->paginate(30);
 
@@ -85,6 +88,11 @@ class GenerationController extends Controller
         // A reference picture makes sense for images and as the first frame of a video only.
         $file = in_array($data['kind'], ['image', 'video', 'tool'], true) ? $request->file('file') : null;
 
+        return $this->queue($request, $service, $data, $file);
+    }
+
+    public function queue(Request $request, GenerationService $service, array $data, ?\Illuminate\Http\UploadedFile $file)
+    {
         try {
             $items = $service->create($request->user(), $data, $file);
         } catch (ModelLocked $e) {

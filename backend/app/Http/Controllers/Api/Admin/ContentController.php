@@ -71,9 +71,8 @@ class ContentController extends Controller
     public function destroyGeneration(Generation $generation)
     {
         abort_if($generation->isActive(), 409, 'Generation is still running');
-        if ($generation->result_path) {
-            Storage::disk('public')->delete($generation->result_path);
-        }
+        $paths = array_filter([$generation->result_path, ...array_column($generation->music_result['tracks'] ?? [], 'path')]);
+        Storage::disk('public')->delete(array_unique($paths));
         // Several pictures of one request share the uploaded photo.
         if ($generation->input_path && ! Generation::where('input_path', $generation->input_path)->whereKeyNot($generation->id)->exists()) {
             Storage::disk('local')->delete($generation->input_path);

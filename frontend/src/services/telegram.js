@@ -18,6 +18,7 @@ export const tg = {
   get hasMainButton() { return !!WebApp?.initData && at('6.1') },
   get hasSecondaryButton() { return !!WebApp?.initData && at('7.10') },
   get canInvoice() { return !!WebApp?.initData && at('6.1') },
+  get canDownload() { return !!WebApp?.initData && at('8.0') && typeof WebApp.downloadFile === 'function' },
 
   init() {
     this.applyTheme()

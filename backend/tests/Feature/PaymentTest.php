@@ -9,6 +9,8 @@ use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -220,6 +222,178 @@ class PaymentTest extends TestCase
             ->postJson('/api/payments/yookassa/webhook', ['event' => 'payment.succeeded', 'object' => ['id' => 'x']])->assertOk();
         $this->withServerVariables(['REMOTE_ADDR' => '172.18.0.5'])->withHeaders(['X-Forwarded-For' => '185.71.76.1, 9.9.9.9'])
             ->postJson('/api/payments/yookassa/webhook', ['event' => 'payment.succeeded', 'object' => ['id' => 'x']])->assertStatus(403);
+    }
+
+    public function test_webhook_recovers_a_create_response_that_never_reached_the_app(): void
+    {
+        $user = $this->user(1, 0);
+        config(['neurogpt.yookassa.verify_ip' => false]);
+        $payment = Payment::create([
+            'user_id' => 1, 'provider' => 'yookassa', 'purpose' => 'topup', 'tokens' => 100,
+            'status' => 'pending', 'amount' => 100, 'currency' => 'RUB', 'idempotence_key' => (string) Str::uuid(),
+        ]);
+        $event = ['event' => 'payment.succeeded', 'object' => ['id' => 'race', 'metadata' => [
+            'webapp_payment' => (string) $payment->id, 'webapp_user' => '1', 'webapp_order' => $payment->idempotence_key,
+        ]]];
+        $remote = null;
+        Http::fake(['api.yookassa.ru/v3/payments/race' => fn () => $remote ?? Http::response([], 503)]);
+        $this->postJson('/api/payments/yookassa/webhook', $event)->assertStatus(500);
+        $this->assertSame(0, $user->refresh()->balance);
+        Http::swap(new Factory);
+        Http::fake(['api.yookassa.ru/v3/payments/race' => Http::response($event['object'] + [
+            'status' => 'succeeded', 'paid' => true, 'amount' => ['value' => '100.00', 'currency' => 'RUB'],
+        ])]);
+        $this->postJson('/api/payments/yookassa/webhook', $event)->assertOk();
+        $this->postJson('/api/payments/yookassa/webhook', $event)->assertOk();
+        $this->assertSame(100, $user->refresh()->balance);
+        $this->assertSame('race', $payment->refresh()->provider_payment_id);
+        Http::assertSentCount(1);
+    }
+
+    public function test_renewal_skips_absent_offers_and_restores_access_on_success(): void
+    {
+        $this->freezeTime(function (Carbon $now) {
+            config(['neurogpt.yookassa.auto_renewal' => true]);
+            $user = $this->user(1, 0);
+            $shop = fn ($days, $price, $item = 'pro') => ShopItem::create([
+                'active' => true, 'text_name' => 'PRO', 'category' => 'sub', 'item' => $item, 'amount' => $days, 'price' => $price,
+            ]);
+            $main = $shop(30, 749);
+            $shop(14, 150, 'other');
+            $calls = 0;
+            Http::fake(['api.yookassa.ru/v3/payments' => function ($request) use (&$calls) {
+                $calls++;
+                $data = $request->data();
+                $payment = ['id' => 'renew-'.$calls, 'amount' => $data['amount']];
+                if ($calls === 1) {
+                    $this->assertTrue($data['save_payment_method']);
+
+                    return Http::response($payment + ['status' => 'succeeded', 'paid' => true, 'payment_method' => [
+                        'id' => 'saved-card', 'saved' => true, 'type' => 'bank_card', 'card' => ['last4' => '0012'],
+                    ]]);
+                }
+                $this->assertSame('saved-card', $data['payment_method_id']);
+                $this->assertArrayNotHasKey('confirmation', $data);
+
+                return Http::response($payment + ($calls === 2
+                    ? ['status' => 'canceled', 'cancellation_details' => ['reason' => 'insufficient_funds']]
+                    : ['status' => 'succeeded', 'paid' => true]));
+            }]);
+            $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $main->id, 'auto_renew' => true])
+                ->assertCreated()->assertJsonPath('data.status', 'succeeded');
+            $this->travelTo($now->copy()->addDays(30)->addSecond());
+            $this->assertSame('free', $user->refresh()->activePlan());
+            $this->artisan('payments:renew')->assertSuccessful();
+            $this->artisan('payments:renew')->assertSuccessful();
+            $this->assertSame(2, $calls);
+            $this->travelTo($now->copy()->addDays(31)->addSecond());
+            $this->artisan('payments:renew')->assertSuccessful();
+            $this->assertSame(2, $calls);
+            $shop(7, 199);
+            $this->as(1337592809)->putJson('/api/admin/renewal', [
+                'enabled' => true, 'steps' => [['days' => 30, 'wait_hours' => 0], ['days' => 7, 'wait_hours' => 168]],
+            ])->assertOk()->assertJsonPath('data.steps.1.wait_hours', 168);
+            // The bot may clear its current subscription markers after expiry.
+            $user->setPlan('free', null)->save();
+            $this->travelTo($now->copy()->addDays(33)->addSeconds(2));
+            $this->artisan('payments:renew')->assertSuccessful();
+            $this->assertSame(3, $calls);
+            $this->assertSame('pro', $user->refresh()->activePlan());
+            $this->assertSame(now()->addDays(7)->timestamp, $user->plan_expires_at->timestamp);
+            $this->assertTrue(BotPayment::where('payment_id', 'renew-3')->firstOrFail()->is_autopayment);
+            $this->as(1)->deleteJson('/api/payments/renewal')->assertOk()->assertJsonPath('user.auto_renewal', false);
+            $this->travel(7)->days();
+            $this->artisan('payments:renew')->assertSuccessful();
+            $this->assertSame(3, $calls);
+        });
+    }
+
+    public function test_a_renewal_with_an_unknown_outcome_reuses_the_same_request(): void
+    {
+        config(['neurogpt.yookassa.auto_renewal' => true]);
+        $user = $this->user(1, 0);
+        $offer = ShopItem::create([
+            'active' => true, 'text_name' => 'PRO', 'category' => 'sub', 'item' => 'pro', 'amount' => 30, 'price' => 749,
+        ]);
+        $requests = [];
+        Http::fake(['api.yookassa.ru/v3/payments' => function ($request) use (&$requests) {
+            if ($request['save_payment_method'] ?? false) {
+                return Http::response([
+                    'id' => 'first', 'status' => 'succeeded', 'paid' => true, 'amount' => $request['amount'],
+                    'payment_method' => ['id' => 'saved-card', 'saved' => true, 'type' => 'bank_card'],
+                ]);
+            }
+            $requests[] = [$request->header('Idempotence-Key'), $request->data()];
+            if (count($requests) === 1) {
+                throw new \Illuminate\Http\Client\ConnectionException('Timed out');
+            }
+
+            return Http::response(['id' => 'retry-once', 'status' => 'succeeded', 'paid' => true, 'amount' => $request['amount']]);
+        }]);
+        $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $offer->id, 'auto_renew' => true])->assertCreated();
+        $this->travelTo($user->refresh()->plan_expires_at->addSecond());
+        $this->artisan('payments:renew')->assertSuccessful();
+        $this->assertSame(1, Payment::whereNotNull('renew_for_expiry')->where('status', 'pending')->count());
+        config(['neurogpt.yookassa.receipt.enabled' => true, 'neurogpt.yookassa.receipt.email' => 'receipt@example.test']);
+        $this->artisan('payments:renew')->assertSuccessful();
+        $this->assertCount(2, $requests);
+        $this->assertSame($requests[0], $requests[1]);
+        $this->assertSame(1, Payment::whereNotNull('renew_for_expiry')->count());
+        $this->assertSame('pro', $user->refresh()->activePlan());
+    }
+
+    public function test_shared_percent_and_fixed_promos_use_the_actual_offer_price_and_release_on_cancellation(): void
+    {
+        $this->user(1, 0);
+        $this->as(1337592809)->postJson('/api/admin/promos', ['type' => 'percent', 'name' => 'bot20', 'discount' => 20, 'uses' => 1])->assertCreated();
+        $this->as(1337592809)->postJson('/api/admin/promos', ['type' => 'fixed', 'name' => 'WEB35', 'discount' => 35, 'uses' => 1])->assertCreated();
+        $this->assertDatabaseHas('promos', ['name' => 'BOT20', 'discount' => 20, 'uses' => 1]);
+        $this->assertDatabaseHas('wa_fixed_promos', ['name' => 'WEB35', 'discount' => 35, 'uses' => 1]);
+
+        $offer = ShopItem::tokenOffers()->where('amount', 100)->firstOrFail();
+        $this->as(1)->postJson('/api/payments/promo', ['offer_id' => $offer->id, 'kind' => 'topup', 'promo' => 'bot20'])
+            ->assertOk()->assertJsonPath('price', 80)->assertJsonPath('stars', 40);
+        $this->as(1)->postJson('/api/payments/promo', ['offer_id' => $offer->id, 'kind' => 'topup', 'promo' => 'web35'])
+            ->assertOk()->assertJsonPath('price', 65);
+        $this->as(1)->postJson('/api/payments/topup', ['offer_id' => $offer->id, 'promo' => 'BOT20', 'expected_payable' => 79])
+            ->assertUnprocessable()->assertJsonValidationErrors('promo');
+        $this->assertSame(1, (int) DB::table('promos')->value('uses'));
+
+        config(['neurogpt.yookassa.verify_ip' => false]);
+        Http::fake([
+            'api.yookassa.ru/v3/payments' => Http::response(['id' => 'promo-invoice', 'status' => 'pending']),
+            'api.yookassa.ru/v3/payments/promo-invoice' => Http::response(['id' => 'promo-invoice', 'status' => 'canceled']),
+        ]);
+        $this->as(1)->postJson('/api/payments/topup', ['offer_id' => $offer->id, 'promo' => 'BOT20', 'expected_payable' => 80])
+            ->assertCreated()->assertJsonPath('data.amount', 80);
+        $this->assertSame(0, (int) DB::table('promos')->value('uses'));
+        $this->as(1337592809)->getJson('/api/admin/promos')->assertOk()
+            ->assertJsonPath('data.0.web_pending', 1)->assertJsonPath('data.1.web_pending', 0);
+        $event = ['event' => 'payment.canceled', 'object' => ['id' => 'promo-invoice']];
+        $this->postJson('/api/payments/yookassa/webhook', $event)->assertOk();
+        $this->postJson('/api/payments/yookassa/webhook', $event)->assertOk();
+        $this->assertSame(1, (int) DB::table('promos')->value('uses'));
+    }
+
+    public function test_owner_configures_the_first_term_and_retry_intervals(): void
+    {
+        $this->user(1, 0);
+        config(['neurogpt.yookassa.auto_renewal' => true]);
+        $main = ShopItem::create([
+            'active' => true, 'text_name' => 'PRO', 'category' => 'sub', 'item' => 'pro', 'amount' => 21, 'price' => 499,
+        ]);
+        $settings = ['enabled' => true, 'steps' => [['days' => 21, 'wait_hours' => 0], ['days' => 3, 'wait_hours' => 72]]];
+        $this->as(1)->putJson('/api/admin/renewal', $settings)->assertForbidden();
+        $this->as(1337592809)->putJson('/api/admin/renewal', [
+            'enabled' => true, 'steps' => [['days' => 2, 'wait_hours' => 0], ['days' => 3, 'wait_hours' => 72]],
+        ])->assertUnprocessable()->assertJsonValidationErrors('steps.1.days');
+        $this->as(1337592809)->putJson('/api/admin/renewal', $settings)
+            ->assertOk()->assertJsonPath('data.steps.0.days', 21)->assertJsonPath('shop_terms', [21]);
+        $this->as(1)->getJson('/api/bootstrap')->assertJsonPath('payments.auto_renewal_days', 21);
+
+        Http::fake(['api.yookassa.ru/v3/payments' => Http::response(['id' => 'hold', 'status' => 'pending'])]);
+        $this->as(1)->postJson('/api/payments/plan', ['offer_id' => $main->id, 'auto_renew' => true])->assertCreated();
+        $this->assertSame(21, Payment::firstOrFail()->renew_base_days);
     }
 
     public function test_unconfigured_method_and_unknown_pack_are_refused(): void

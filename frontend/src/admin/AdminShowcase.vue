@@ -2,7 +2,7 @@
   <section class="adm-sec">
     <div class="adm-bar">
       <div class="filters grow"><button v-for="(n, k) in tabs" :key="k" type="button" class="chip" :aria-pressed="String(tab === k)" @click="tab = k; cancel()">{{ n }}</button></div>
-      <button type="button" class="adm-btn sm" @click="add">{{ tab === 'photosets' ? 'Добавить фотосет' : 'Добавить карточку' }}</button>
+      <button type="button" class="adm-btn sm" @click="add">{{ tab === 'photosets' ? 'Добавить пресет' : 'Добавить карточку' }}</button>
     </div>
     <p class="adm-note">{{ tab === 'photosets' ? 'Готовые идеи для фото пользователя. Промпт уходит модели вместе с фотографией. Картинка-пример показывает людям, что получится.' : 'Карточки новостей на главном экране.' }}</p>
     <div v-if="tab === 'photosets' && missing.length && !loading" class="adm-card glass">
@@ -17,23 +17,26 @@
     <div v-else>
       <div v-for="it in items[tab]" :key="it.id || 'new'" :class="['adm-item', 'glass', it.is_active ? '' : 'off']">
         <button type="button" class="row" :aria-expanded="String(edit === it)" @click="toggle(it)">
-          <img v-if="tab === 'photosets' && it.cover_url" class="adm-thumb" :src="it.cover_url" alt="">
+          <video v-if="videoExample(it)" class="adm-thumb" :src="it.cover_url" muted playsinline preload="metadata" />
+          <img v-else-if="tab === 'photosets' && it.cover_url" class="adm-thumb" :src="it.cover_url" alt="">
           <span v-else class="sq"><svg class="ic-s" aria-hidden="true"><use :href="tab === 'photosets' ? '#i-image' : '#i-story'" /></svg></span>
           <span class="t"><b>{{ it.name || it.title || 'Новая запись' }}</b><span>{{ tab === 'photosets' ? it.description : it.subtitle }}</span></span>
           <span class="end"><span v-if="!it.is_active" class="adm-pill bad">выкл</span><span v-if="it.is_trending" class="adm-pill hot">тренд</span></span>
         </button>
         <form v-if="edit === it" class="adm-edit" @submit.prevent="save">
           <div v-if="tab === 'photosets'" class="adm-grid">
+            <label class="adm-f">Тип<select v-model="f.kind" :disabled="!!it.id"><option value="image">Фотосет</option><option value="video">Видеосет</option></select></label>
             <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="120"></label>
             <label class="adm-f">Порядок<input v-model.number="f.sort" type="number" min="0"></label>
             <label class="adm-f">Цвета обложки без картинки<select v-model.number="f.palette"><option v-for="n in 5" :key="n" :value="n - 1">Палитра {{ n }}</option></select></label>
             <label class="adm-f">Узор обложки (число)<input v-model.number="f.seed" type="number" min="0" max="100000"></label>
             <label class="adm-f full">Описание для пользователя<textarea v-model.trim="f.description" maxlength="1000" rows="2" /></label>
             <label class="adm-f full">Промпт для модели<textarea v-model.trim="f.prompt" required maxlength="6000" rows="6" /></label>
-            <div class="adm-f full">Картинка-пример (обложка фотосета в приложении)
+            <div class="adm-f full">{{ f.kind === "video" ? "Видео-пример или обложка" : "Картинка-пример" }}
               <div class="adm-cover">
                 <div class="adm-cover-img">
-                  <img v-if="f.cover_url" :src="f.cover_url" alt="Текущий пример">
+                  <video v-if="videoExample(f)" :src="f.cover_url" controls playsinline preload="metadata" style="width:100%" />
+                  <img v-else-if="f.cover_url" :src="f.cover_url" alt="Текущий пример">
                   <span v-else>Пока заглушка</span>
                   <span v-if="gen.id === it.id" class="adm-cover-busy">Генерируем…</span>
                 </div>
@@ -42,7 +45,7 @@
                     <button type="button" class="adm-btn sm" :disabled="!!gen.id" @click="generate(it)">{{ f.cover_url ? 'Сгенерировать другой' : 'Сгенерировать пример' }}</button>
                     <label :class="['adm-btn', 'soft', 'sm', gen.id ? 'off' : '']" style="display:inline-flex;align-items:center;cursor:pointer">Сгенерировать по фото<input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" :disabled="!!gen.id" @change="generateFrom(it, $event)"></label>
                   </template>
-                  <label class="adm-btn soft sm" style="display:inline-flex;align-items:center;cursor:pointer">Загрузить свою<input type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" @change="upload"></label>
+                  <label class="adm-btn soft sm" style="display:inline-flex;align-items:center;cursor:pointer">Загрузить пример<input type="file" :accept="f.kind === 'video' ? 'image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime' : 'image/jpeg,image/png,image/webp'" class="visually-hidden" @change="upload"></label>
                   <button v-if="f.cover_url" type="button" class="adm-btn danger sm" @click="f.cover_url = ''">Убрать</button>
                   <span class="adm-note">{{ it.id ? 'Пример создаётся вашей моделью по промпту этого фотосета, бесплатно для администратора. Обычно это до минуты. Сначала сохраните промпт, если меняли его.' : 'Сохраните фотосет, и здесь появится кнопка генерации примера.' }}</span>
                 </div>
@@ -85,13 +88,14 @@ export default {
   name: 'AdminShowcase',
   mixins: [section],
   data: () => ({
-    tabs: { photosets: 'Фотосеты', news: 'Новости' }, tab: 'photosets', items: { photosets: [], news: [] }, edit: null, f: {}, confirming: false, gen: { id: null }, bulk: { on: false, done: 0, total: 0, stop: false },
+    tabs: { photosets: 'Фото- и видеосеты', news: 'Новости' }, tab: 'photosets', items: { photosets: [], news: [] }, edit: null, f: {}, confirming: false, gen: { id: null }, bulk: { on: false, done: 0, total: 0, stop: false },
     stickers: ['art', 'coin', 'crown', 'cry', 'fire', 'gem', 'gift', 'heart', 'hourglass', 'hundred', 'magic', 'money', 'moneybag', 'party', 'robot', 'rocket', 'sleep', 'sparkles', 'star', 'starstruck', 'thinking', 'wave'],
   }),
-  computed: { missing() { return this.items.photosets.filter((p) => p.id && p.is_active && !p.cover_url) } },
+  computed: { missing() { return this.items.photosets.filter((p) => p.id && p.is_active && p.kind !== 'video' && !p.cover_url) } },
   mounted() { this.load() },
   beforeUnmount() { this.bulk.stop = true; this.gone = true },
   methods: {
+    videoExample(item) { return item.kind === 'video' && /\.(mp4|webm|mov)(?:$|[?#])/i.test(item.cover_url || '') },
     load() {
       return this.fetch(async () => {
         const [p, n] = await Promise.all([adminApi.list('photosets'), adminApi.list('news')])
@@ -109,7 +113,7 @@ export default {
       this.cancel()
       const list = this.items[this.tab]
       const fresh = this.tab === 'photosets'
-        ? { id: null, name: '', description: '', prompt: '', cover_url: '', seed: Math.floor(Math.random() * 100), palette: 0, is_trending: false, trend_hint: '', sort: list.length, is_active: true }
+        ? { id: null, kind: 'image', name: '', description: '', prompt: '', cover_url: '', seed: Math.floor(Math.random() * 100), palette: 0, is_trending: false, trend_hint: '', sort: list.length, is_active: true }
         : { id: null, title: '', subtitle: '', sticker: 'rocket', style: 'ember', action: null, sort: list.length, is_active: true, ends_at: null }
       list.push(fresh)
       this.toggle(list[list.length - 1])
@@ -121,7 +125,7 @@ export default {
     upload(e) {
       const file = e.target.files[0]
       e.target.value = ''
-      if (file) return this.run(async () => { this.f.cover_url = (await adminApi.upload(file)).url }, 'Обложка загружена')
+      if (file) return this.run(async () => { this.f.cover_url = (await adminApi.upload(file, this.f.kind)).url }, 'Обложка загружена')
     },
     generateFrom(it, e) {
       const file = e.target.files[0]
@@ -137,7 +141,7 @@ export default {
           await new Promise((r) => setTimeout(r, 2000))
           g = (await api.generation(g.id)).data
         }
-        if (g.status !== 'done') throw new ApiError(422, { message: g.error === 'content_filtered' ? 'Модель отклонила запрос, попробуйте ещё раз или измените промпт' : g.error === 'unavailable' ? 'Модель картинок сейчас недоступна, проверьте провайдера' : 'Не получилось создать пример, попробуйте ещё раз' })
+        if (g.status !== 'done') throw new ApiError(422, { message: g.error === 'content_filtered' ? 'Модель отклонила запрос, попробуйте ещё раз или измените промпт' : g.error === 'unavailable' ? 'Модель сейчас недоступна, проверьте провайдера' : 'Не получилось создать пример, попробуйте ещё раз' })
         const saved = (await adminApi.useExample(it.id, g.id)).data
         it.cover_url = saved.cover_url
         if (this.edit === it) this.f.cover_url = saved.cover_url

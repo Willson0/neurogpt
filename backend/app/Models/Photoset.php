@@ -17,7 +17,7 @@ class Photoset extends Model
     protected $table = 'wa_photosets';
 
     protected $fillable = [
-        'prompt_id', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending',
+        'prompt_id', 'kind', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending',
         'trend_hint', 'sort', 'is_active', 'edited_at',
     ];
 

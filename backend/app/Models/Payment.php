@@ -15,12 +15,14 @@ class Payment extends Model
     protected $fillable = [
         'user_id', 'rub_amount', 'bot_payment_id', 'provider', 'provider_payment_id', 'idempotence_key', 'purpose', 'tokens', 'plan',
         'period', 'amount', 'currency', 'status', 'confirmation_url', 'cancel_reason', 'credited_at', 'raw',
-        'shop_item_id', 'plan_days', 'plan_name',
+        'shop_item_id', 'plan_days', 'plan_name', 'renew_for_expiry', 'renew_opt_in', 'renew_due_at', 'renew_base_days', 'renew_schedule', 'renew_max_rub', 'renew_method',
+        'promo_source', 'promo_id', 'promo_code', 'promo_released',
     ];
 
     protected function casts(): array
     {
         return ['amount' => 'decimal:2', 'rub_amount' => 'decimal:2', 'tokens' => 'integer', 'credited_at' => 'datetime',
+            'renew_for_expiry' => 'integer', 'renew_due_at' => 'integer', 'renew_base_days' => 'integer', 'renew_schedule' => 'array', 'renew_opt_in' => 'boolean', 'promo_released' => 'boolean',
             'raw' => 'array', 'shop_item_id' => 'integer', 'plan_days' => 'integer'];
     }
 

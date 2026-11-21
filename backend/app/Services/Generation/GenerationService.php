@@ -35,11 +35,14 @@ class GenerationService
     {
         $kind = $data['kind'];
         $photoset = ! empty($data['photoset_id']) ? Photoset::active()->findOrFail($data['photoset_id']) : null;
+        if ($photoset && $photoset->kind !== $kind) {
+            throw ValidationException::withMessages(['kind' => 'Тип генерации должен совпадать с типом пресета']);
+        }
         $tool = $kind === 'tool' ? $data['tool'] : null;
         $toolCfg = $tool ? config("neurogpt.tools.$tool") : null;
 
         $model = $this->model($user, $kind, $tool, $data['model'] ?? null);
-        if (! $user->canUse($model)) {
+        if (! $free && ! $user->canUse($model)) {
             throw new ModelLocked($model->min_plan);
         }
 
@@ -72,7 +75,7 @@ class GenerationService
         }
 
         $inputPath = isset($data['music'])
-            ? $this->storeAudio($user, $file)
+            ? $this->storeMusic($user, $file, $data['music_uploads'] ?? [])
             : $this->storeInput($user, $file, $data['source_generation_id'] ?? null);
 
         try {
@@ -101,7 +104,7 @@ class GenerationService
             });
         } catch (Throwable $e) {
             if ($inputPath) {
-                Storage::disk('local')->delete($inputPath);
+                self::removeInput($inputPath);
             }
             throw $e;
         }
@@ -187,6 +190,41 @@ class GenerationService
         return array_filter($params, fn ($v) => $v !== null && $v !== '');
     }
 
+    private function storeMusic(User $user, ?UploadedFile $file, array $uploads): ?string
+    {
+        if (! $uploads) {
+            return $this->storeAudio($user, $file);
+        }
+
+        $disk = Storage::disk('local');
+        $dir = 'inputs/'.$user->id.'/'.Str::uuid();
+        try {
+            foreach ($uploads as $field => $files) {
+                foreach (array_values($files) as $index => $upload) {
+                    $ext = $upload->guessExtension() ?: 'bin';
+                    if (! $disk->putFileAs($dir.'/'.$field, $upload, sprintf('%02d.%s', $index, $ext))) {
+                        throw ValidationException::withMessages(['references' => 'Не удалось сохранить референс']);
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $disk->deleteDirectory($dir);
+            throw $e;
+        }
+
+        return $dir;
+    }
+
+    public static function removeInput(string $path): void
+    {
+        $disk = Storage::disk('local');
+        if ($disk->directoryExists($path)) {
+            $disk->deleteDirectory($path);
+        } else {
+            $disk->delete($path);
+        }
+    }
+
     private function storeAudio(User $user, ?UploadedFile $file): ?string
     {
         if (! $file) {
@@ -259,7 +297,7 @@ class GenerationService
         });
 
         if ($cancelled && isset($g->params['music']) && $g->input_path) {
-            Storage::disk('local')->delete($g->input_path);
+            self::removeInput($g->input_path);
         }
 
         return $cancelled;

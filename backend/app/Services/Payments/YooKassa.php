@@ -22,7 +22,7 @@ class YooKassa
         return $idempotenceKey ? $req->withHeaders(['Idempotence-Key' => $idempotenceKey]) : $req;
     }
 
-    public function createPayment(string $idempotenceKey, float $amount, string $description, string $returnUrl, array $metadata, ?array $receipt = null): array
+    public function createPayment(string $idempotenceKey, float $amount, string $description, string $returnUrl, array $metadata, ?array $receipt = null, bool $saveMethod = false, ?string $savedMethod = null): array
     {
         $body = [
             'amount' => ['value' => number_format($amount, 2, '.', ''), 'currency' => 'RUB'],
@@ -31,6 +31,12 @@ class YooKassa
             'description' => mb_substr($description, 0, 128),
             'metadata' => $metadata,
         ];
+        if ($savedMethod !== null) {
+            unset($body['confirmation']);
+            $body['payment_method_id'] = $savedMethod;
+        } elseif ($saveMethod) {
+            $body['save_payment_method'] = true;
+        }
         if ($receipt) {
             $body['receipt'] = $receipt;
         }

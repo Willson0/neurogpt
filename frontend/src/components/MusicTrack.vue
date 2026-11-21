@@ -12,17 +12,17 @@
     <div class="music-track-actions">
       <button type="button" class="pill-btn" :disabled="downloading" @click="download"><svg class="ic-s" aria-hidden="true"><use href="#i-down" /></svg>{{ downloading ? 'Готовим файл…' : 'Скачать' }}</button>
       <button type="button" class="pill-btn" :disabled="sending" @click="send">{{ sending ? 'Отправляем…' : 'В чат' }}</button>
+      <button type="button" class="pill-btn" @click="edit('cover')">{{ cover?.result_url ? 'Новая обложка' : 'Создать обложку' }} · {{ tok(app.musicPrices.cover ?? 0) }}</button>
       <a v-if="cover?.result_url" :href="cover.result_url" class="pill-btn" target="_blank" rel="noopener">Обложка</a>
     </div>
     <details class="music-more">
-      <summary>Обработка и обложка</summary>
+      <summary>Обработка трека</summary>
       <div class="music-track-actions">
         <button v-if="track.editable" type="button" class="pill-btn" @click="edit('extend')">Продолжить</button>
         <button v-if="track.editable && (!track.duration || track.duration >= 20)" type="button" class="pill-btn" @click="edit('replace')">Заменить фрагмент</button>
         <button v-if="track.editable && ['generate', 'extend'].includes(generation.music?.operation)" type="button" class="pill-btn" @click="edit('persona')">Сохранить стиль</button>
         <button v-if="track.editable" type="button" class="pill-btn" @click="edit('wav')">Экспорт WAV</button>
         <button v-if="track.editable" type="button" class="pill-btn" @click="edit('stems')">Разделить дорожки</button>
-        <button type="button" class="pill-btn" @click="edit('cover')">{{ cover?.result_url ? 'Новая обложка' : 'Создать обложку' }} · {{ tok(app.musicPrices.cover ?? 0) }}</button>
       </div>
     </details>
     <details v-if="track.lyrics" class="music-more"><summary>Текст песни</summary><p class="music-lyrics">{{ track.lyrics }}</p></details>

@@ -1,50 +1,60 @@
 <template>
-  <div class="promo">
-    <div v-if="app.promo" class="banner glass promo-on">
-      <Sticker name="gift" :size="32" />
-      <span class="promo-t"><b>{{ app.promo.code }} · −{{ app.promo.discount }}%</b><small v-if="target && !off">не действует на этот товар</small><small v-else-if="target">{{ was }} → {{ now }}</small></span>
-      <button type="button" class="pill-btn" aria-label="Убрать промокод" @click="app.clearPromo()"><svg class="ic-s" aria-hidden="true"><use href="#i-close" /></svg></button>
+  <form class="promo-field glass" @submit.prevent="apply">
+    <label :for="'promo-' + kind">Промокод</label>
+    <div class="promo-controls">
+      <input :id="'promo-' + kind" v-model.trim="code" maxlength="64" autocomplete="off" autocapitalize="characters" @input="reset">
+      <button v-if="quote" type="button" class="pill-btn" @click="clear">Убрать</button>
+      <button v-else type="submit" class="pill-btn" :disabled="!code || busy">Применить</button>
     </div>
-    <button v-else-if="!open" type="button" class="promo-ask" @click="show">Есть промокод?</button>
-    <form v-else class="promo-form glass" @submit.prevent="apply">
-      <label for="promoCode" class="visually-hidden">Промокод</label>
-      <input id="promoCode" ref="input" v-model.trim="code" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Промокод" enterkeyhint="done">
-      <button type="submit" class="pill-btn hot" :disabled="!code || app.busy">Применить</button>
-    </form>
-  </div>
+    <small v-if="error" role="alert">{{ error }}</small>
+    <small v-else-if="quote">Цена со скидкой · {{ app.checkoutPrice(kind, offer) }}</small>
+  </form>
 </template>
 
-<script>
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { api } from '../services/api'
 import { useApp } from '../stores/app'
-import Sticker from './Sticker.vue'
 
-// The promo code field under the payment method: "Есть промокод?" opens the input, the server checks the code.
-export default {
-  name: 'PromoField',
-  components: { Sticker },
-  data: () => ({ open: false, code: '' }),
-  computed: {
-    app() { return useApp() },
-    target() { return this.app.payTarget },
-    off() { return this.app.promoOff(this.target) },
-    was() { return `${Number(this.target?.price || 0).toLocaleString('ru-RU')} ₽` },
-    now() { return `${this.app.discounted(this.target?.price, 0, this.target).rub.toLocaleString('ru-RU')} ₽` },
-  },
-  methods: {
-    show() { this.open = true; this.$nextTick(() => this.$refs.input?.focus()) },
-    async apply() {
-      if (await this.app.applyPromo(this.code)) { this.open = false; this.code = '' }
-    },
-  },
+const props = defineProps({ kind: { type: String, required: true }, offer: { type: Object, required: true } })
+const app = useApp()
+const quote = computed(() => app.appliedPromo(props.kind, props.offer))
+const code = ref(quote.value?.code || '')
+const busy = ref(false)
+const error = ref('')
+watch(() => props.offer.id, () => { code.value = quote.value?.code || ''; error.value = '' })
+
+function reset() {
+  app.promo[props.kind] = null
+  error.value = ''
+}
+
+function clear() {
+  code.value = ''
+  reset()
+}
+
+async function apply() {
+  if (!code.value || busy.value) return
+  const { id, price } = props.offer
+  const entered = code.value
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await api.promoQuote(props.kind, props.offer, entered)
+    if (props.offer.id === id && code.value === entered) {
+      app.promo[props.kind] = { ...result, code: entered, offerId: id, originalPrice: price }
+    }
+  } catch (e) {
+    if (props.offer.id === id && code.value === entered) error.value = e.body?.errors?.promo?.[0] || 'Не удалось проверить промокод'
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
-<style>
-.promo-ask { justify-self: start; border: 0; background: none; padding: var(--space-2xs) 0; color: var(--color-accent); font-size: var(--text-2); font-weight: 600; }
-.promo-form { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-md); border-radius: var(--radius-pill); }
-.promo-form input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--color-ink); font: inherit; font-size: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; min-height: 40px; outline: none; }
-.promo-form input::placeholder { text-transform: none; letter-spacing: 0; color: var(--color-muted); }
-.promo-on .promo-t { display: grid; flex: 1; min-width: 0; }
-.promo-on small { color: var(--color-muted); font-size: var(--text-cap); }
-.promo { display: grid; }
+<style scoped>
+.promo-field { display: grid; gap: 8px; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-card); }
+.promo-controls { display: flex; gap: 8px; }
+input { flex: 1; min-width: 0; padding: 8px; border-radius: var(--radius-ctl); border: 1px solid var(--color-surface-2); background: var(--color-surface-2); color: var(--color-ink); }
 </style>

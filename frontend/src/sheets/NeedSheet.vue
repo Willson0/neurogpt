@@ -38,7 +38,7 @@ export default {
     buy() {
       this.app.packIndex = this.app.packs.indexOf(this.pack)
       this.app.closeSheet()
-      this.app.pay('topup')
+      this.app.pay('topup', false)
     },
     more() { this.app.closeSheet(); this.app.push('topup') },
   },

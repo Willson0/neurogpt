@@ -75,6 +75,40 @@ class GenerationTest extends TestCase
         $this->as(1)->postJson('/api/generations', ['kind' => 'video', 'prompt' => 'волны'])->assertCreated()->assertJsonPath('data.0.cost', 20);
     }
 
+    public function test_video_preset_uses_video_pipeline_and_video_model_price(): void
+    {
+        $this->user(1, 300, 'plus');
+        $setId = $this->as(1337592809)->postJson('/api/admin/photosets', [
+            'kind' => 'video', 'name' => 'Прогулка', 'prompt' => 'Walk into the scene.',
+            'cover_url' => 'https://media.example.test/example.mp4', 'is_active' => true,
+        ])->assertCreated()->assertJsonPath('data.kind', 'video')->json('data.id');
+        $this->assertNull(Photoset::findOrFail($setId)->prompt_id);
+        $model = AiModel::where('kind', 'video')->where('slug', 'kling')->firstOrFail();
+        $model->update(['driver' => 'kie', 'provider_model' => 'kling-test', 'options' => ['family' => 'kling'] + ($model->options ?? [])]);
+        config(['neurogpt.providers.kie.api_key' => 'video-tests']);
+        Http::fake([
+            config('neurogpt.providers.kie.upload_url') => Http::response(['code' => 200, 'data' => ['downloadUrl' => 'https://media.example.test/ref.jpg']]),
+            'api.kie.ai/api/v1/jobs/createTask' => Http::response(['code' => 200, 'data' => ['taskId' => 'video-set']]),
+            'api.kie.ai/api/v1/jobs/recordInfo*' => Http::response(['code' => 200, 'data' => [
+                'state' => 'success', 'resultJson' => '{"resultUrls":["https://media.example.test/video.mp4"]}',
+            ]]),
+            'media.example.test/video.mp4' => Http::response('video'),
+        ]);
+        $photo = fn () => UploadedFile::fake()->image('me.jpg', 600, 800);
+        $this->as(1)->post('/api/generations', ['kind' => 'image', 'photoset_id' => $setId, 'file' => $photo()])
+            ->assertUnprocessable()->assertJsonValidationErrors('kind');
+        $id = $this->as(1)->post('/api/generations', [
+            'kind' => 'video', 'photoset_id' => $setId, 'file' => $photo(), 'model' => 'kling',
+            'format' => '9:16', 'duration' => 10, 'prompt' => 'Slowly',
+        ])->assertCreated()->assertJsonPath('data.0.kind', 'video')->assertJsonPath('data.0.cost', 220)->json('data.0.id');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/createTask')
+            && $request['model'] === 'kling-test' && $request['input']['image_urls'] === ['https://media.example.test/ref.jpg']
+            && str_starts_with($request['input']['prompt'], 'Walk into the scene.'));
+        $generation = Generation::findOrFail($id);
+        $this->assertSame('done', $generation->status);
+        Storage::disk('public')->assertExists($generation->result_path);
+    }
+
     public function test_tools_need_a_photo_and_their_inputs(): void
     {
         $this->user(1, 100);

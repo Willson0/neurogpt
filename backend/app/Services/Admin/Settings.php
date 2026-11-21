@@ -29,6 +29,7 @@ class Settings
         'providers.kie.translate' => false,
         // YooKassa shop settings. The secret key is stored encrypted (secret_key_enc) and changed only by an owner.
         'yookassa' => true,
+        'renewal' => true,
         // Catalog rows the admin deleted, so the seeder does not bring them back.
         'deleted' => false,
     ];

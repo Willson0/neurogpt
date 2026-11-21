@@ -65,7 +65,7 @@ class SettingsController extends Controller
     private function values(): array
     {
         $all = Settings::all();
-        unset($all['deleted'], $all['admins'], $all['yookassa']);
+        unset($all['deleted'], $all['admins'], $all['yookassa'], $all['renewal']);
         $all['theme'] = ['dark' => (object) ($all['theme']['dark'] ?? []), 'light' => (object) ($all['theme']['light'] ?? [])];
         $all['subscription_offers'] = SubscriptionCatalog::offers();
         $all['packs'] = PaymentService::tokenOffers();

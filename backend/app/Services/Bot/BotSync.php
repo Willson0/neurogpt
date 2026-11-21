@@ -64,7 +64,7 @@ class BotSync
         $rub = (float) ($payment->rub_amount ?? $payment->amount);
         $row = BotPayment::create([
             'payment_id' => Str::limit((string) ($payment->provider_payment_id ?: 'webapp:'.$payment->idempotence_key), 128, ''),
-            'is_autopayment' => false,
+            'is_autopayment' => $payment->renew_for_expiry !== null,
             'was_bought' => true,
             'is_proceed' => true,
             'user_id' => $payment->user_id,

@@ -13,6 +13,12 @@ class MusicStudio
 {
     public const MODELS = ['suno-v6' => 'V6', 'suno-v6-mini' => 'V6_MINI', 'suno-v6-wild' => 'V6_WILD'];
 
+    public const REFERENCES = [
+        'image_urls' => [5, 'image/jpeg,image/png,image/webp,image/bmp,image/x-ms-bmp'],
+        'video_urls' => [1, 'video/mp4,video/quicktime,video/webm'],
+        'audio_urls' => [10, 'audio/mpeg,audio/mp4,audio/aac,audio/x-wav,audio/wav,audio/ogg,audio/flac,audio/x-flac,audio/webm,video/webm'],
+    ];
+
     public const OPERATIONS = [
         'generate' => ['generate', 'Создание песни'],
         'lyrics' => ['generate-lyrics', 'Генерация текста'],
@@ -61,14 +67,16 @@ class MusicStudio
             'singer_skill_level' => ['nullable', Rule::in(['beginner', 'intermediate', 'professional'])],
             'stem_type' => ['nullable', Rule::in(['separate_vocal', 'split_stem', 'split_stem_advanced'])],
             'stem_name' => ['nullable', 'string', 'max:60'],
-            'mashup_urls' => ['nullable', 'array', 'size:2'],
-            'mashup_urls.*' => ['required', 'url:https', 'max:2048', 'distinct'],
+            'references' => ['nullable', 'array:image_urls,video_urls,audio_urls'],
+            'mashup_files' => ['required_if:operation,mashup', 'array', 'size:2'],
+            'mashup_files.*' => ['required', 'file', 'max:20480', 'mimetypes:'.self::REFERENCES['audio_urls'][1]],
             'auto_send' => ['boolean'],
             'file' => ['nullable', 'file', 'max:20480', 'mimetypes:audio/mpeg,audio/mp4,audio/aac,audio/x-wav,audio/wav,audio/ogg,audio/flac,audio/x-flac,audio/webm,video/webm'],
         ];
-        foreach (['image_urls' => 5, 'video_urls' => 1, 'audio_urls' => 10, 'midi_urls' => 1] as $key => $limit) {
-            $rules[$key] = ['nullable', 'array', 'max:'.$limit];
-            $rules[$key.'.*'] = ['required', 'url:https', 'max:2048'];
+        foreach (self::REFERENCES as $key => [$limit, $mime]) {
+            $rules['references.'.$key] = ['nullable', 'array', 'max:'.$limit];
+            $max = $key === 'image_urls' ? 10240 : 20480;
+            $rules['references.'.$key.'.*'] = ['required', 'file', 'max:'.$max, 'mimetypes:'.$mime];
         }
 
         $data = array_filter($request->validate($rules), fn ($value) => $value !== null && $value !== '');
@@ -79,6 +87,7 @@ class MusicStudio
         $parentId = null;
         $previousPhrase = null;
         $fileField = null;
+        $uploads = [];
 
         $advanced = Arr::only($data, ['negative_tags', 'vocal_gender', 'style_weight', 'weirdness_constraint', 'audio_weight', 'variety']);
         foreach (['style_weight', 'weirdness_constraint', 'audio_weight'] as $key) {
@@ -117,7 +126,7 @@ class MusicStudio
         switch ($operation) {
             case 'generate':
                 $custom = $request->boolean('custom_mode');
-                $references = Arr::only($data, ['image_urls', 'video_urls', 'audio_urls', 'midi_urls']);
+                $references = $data['references'] ?? [];
                 $input = ['custom_mode' => $custom, 'instrumental' => $instrumental] + $description;
                 if ($custom) {
                     $this->require(isset($data['title']), 'title', 'Введите название песни');
@@ -134,10 +143,8 @@ class MusicStudio
                     if ($attachments === 0) {
                         $input['style'] = mb_substr($data['prompt'], 0, 1000);
                     }
-                    if (! empty($references['midi_urls'])) {
-                        $model = 'suno-v6-wild';
-                    }
-                    $input += $references + Arr::only($data, ['prompt']) + Arr::only($advanced, ['negative_tags', 'persona_id', 'persona_model']);
+                    $uploads = $references;
+                    $input += Arr::only($data, ['prompt']) + Arr::only($advanced, ['negative_tags', 'persona_id', 'persona_model']);
                 }
                 break;
 
@@ -215,8 +222,8 @@ class MusicStudio
                 break;
 
             case 'mashup':
+                $uploads = ['upload_url_list' => $data['mashup_files']];
                 $input = [
-                    'upload_url_list' => $this->field($data, 'mashup_urls', 'Введите две разные HTTPS-ссылки на аудио'),
                     'title' => $this->field($data, 'title', 'Укажите название песни'),
                     'style' => $this->field($data, 'style', 'Укажите музыкальный стиль'),
                 ] + $description + Arr::except($advanced, ['negative_tags']);
@@ -271,6 +278,8 @@ class MusicStudio
         if ($fileField) {
             $this->require($file !== null, 'file', 'Выберите аудиофайл до 20 МБ');
         }
+        $total = array_sum(array_map(fn ($files) => array_sum(array_map(fn ($file) => $file->getSize(), $files)), $uploads));
+        $this->require($total <= 50 * 1024 * 1024, 'references', 'Общий размер файлов — до 50 МБ');
         if (in_array($operation, ['generate', 'extend', 'extend_upload', 'cover_audio', 'add_vocals', 'add_instrumental', 'mashup'], true)) {
             $input['model'] = self::MODELS[$model];
         }
@@ -279,6 +288,7 @@ class MusicStudio
             'kind' => 'song',
             'model' => $model,
             'prompt' => $data['prompt'] ?? $data['title'] ?? '',
+            'music_uploads' => $uploads,
             'music' => [
                 'operation' => $operation,
                 'label' => self::OPERATIONS[$operation][1],
@@ -288,6 +298,7 @@ class MusicStudio
                 'parent_id' => $parentId,
                 'track' => (int) ($data['track'] ?? 0),
                 'file_field' => $fileField,
+                'upload_fields' => array_keys($uploads),
                 'profile_id' => $data['profile_id'] ?? null,
                 'previous_phrase' => $previousPhrase,
                 'auto_send' => $request->boolean('auto_send'),

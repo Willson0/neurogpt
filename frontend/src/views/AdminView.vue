@@ -28,6 +28,8 @@ import AdminPricing from '../admin/AdminPricing.vue'
 import AdminSettings from '../admin/AdminSettings.vue'
 import AdminTheme from '../admin/AdminTheme.vue'
 import AdminUsers from '../admin/AdminUsers.vue'
+import AdminRenewal from '../admin/AdminRenewal.vue'
+import AdminPromos from '../admin/AdminPromos.vue'
 import AdminPayments from '../admin/AdminPayments.vue'
 
 export default {
@@ -35,13 +37,13 @@ export default {
   data: () => ({
     views: markRaw({
       dashboard: AdminDashboard, content: AdminContent, models: AdminModels, tools: AdminTools, showcase: AdminShowcase,
-      pricing: AdminPricing, settings: AdminSettings, theme: AdminTheme, users: AdminUsers, payments: AdminPayments,
+      pricing: AdminPricing, settings: AdminSettings, theme: AdminTheme, users: AdminUsers, payments: AdminPayments, promos: AdminPromos, renewal: AdminRenewal,
     }),
     current: 'dashboard', contentUser: '',
     sections: [
       { id: 'dashboard', name: 'Обзор' }, { id: 'content', name: 'Работы и промпты' }, { id: 'models', name: 'Модели' }, { id: 'tools', name: 'Инструменты' },
-      { id: 'showcase', name: 'Фотосеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
-      { id: 'payments', name: 'Платежи и ЮKassa' }, { id: 'theme', name: 'Цвета' }, { id: 'users', name: 'Пользователи' },
+      { id: 'showcase', name: 'Пресеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
+      { id: 'payments', name: 'Платежи и ЮKassa' }, { id: 'renewal', name: 'Автопродление' }, { id: 'promos', name: 'Промокоды' }, { id: 'theme', name: 'Цвета' }, { id: 'users', name: 'Пользователи' },
     ],
   }),
   computed: {

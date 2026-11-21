@@ -17,13 +17,13 @@
 
     <div class="home-a">
     <LensBar :active="app.mode" label="Что создаём">
-      <button v-for="m in modes" :key="m.id" type="button" role="tab" :aria-selected="String(app.mode === m.id)" @click="app.setMode(m.id)">{{ m.label }}<i v-if="m.id === 'song' && app.songsOff" class="soon-tag">скоро</i></button>
+      <button v-for="m in modes" :key="m.id" type="button" role="tab" :aria-selected="String(app.mode === m.id)" @click="app.setMode(m.id)">{{ m.label }}<i v-if="m.id === 'song' && app.songsOff" class="soon-tag">недоступно</i></button>
     </LensBar>
 
     <div v-if="songSoon" class="soon glass in-fade">
       <Sticker name="hourglass" :size="72" glow glow-color="--plasma-2" />
-      <h2>Coming soon...</h2>
-      <p>Песни с вокалом по вашему тексту уже в работе. Сообщим в чате с ботом, когда запустим.</p>
+      <h2>Студия песен недоступна</h2>
+      <p>Попробуйте открыть студию позже.</p>
       <button type="button" class="pill-btn" @click="app.setMode('video')"><svg class="ic-s" aria-hidden="true"><use href="#i-video" /></svg>Попробовать видео</button>
     </div>
 

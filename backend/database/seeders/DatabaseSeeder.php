@@ -106,7 +106,7 @@ class DatabaseSeeder extends Seeder
         foreach ([
             ['suno-v6', 'Suno V6', 'Основная модель для песен', 30],
             ['suno-v6-mini', 'Suno V6 Mini', 'Быстрые наброски', 20],
-            ['suno-v6-wild', 'Suno V6 Wild', 'Эксперименты и MIDI-референсы', 50],
+            ['suno-v6-wild', 'Suno V6 Wild', 'Экспериментальное звучание', 50],
         ] as $i => [$slug, $name, $hint, $price]) {
             $this->sync(AiModel::class, ['kind' => 'song', 'slug' => $slug], [
                 'name' => $name, 'hint' => $hint, 'price' => $price,

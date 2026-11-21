@@ -82,9 +82,6 @@ class GenerationController extends Controller
         if (($isTool || ! empty($data['photoset_id'])) && ! $request->hasFile('file') && empty($data['source_generation_id'])) {
             return response()->json(['message' => 'Photo is required', 'errors' => ['file' => ['Сначала выберите фото']]], 422);
         }
-        if (! empty($data['photoset_id']) && $data['kind'] !== 'image') {
-            return response()->json(['message' => 'Photosets are images', 'errors' => ['kind' => ['Фотосет создаёт картинку']]], 422);
-        }
         // A reference picture makes sense for images and as the first frame of a video only.
         $file = in_array($data['kind'], ['image', 'video', 'tool'], true) ? $request->file('file') : null;
 

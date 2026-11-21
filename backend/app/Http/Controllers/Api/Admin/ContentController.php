@@ -60,7 +60,7 @@ class ContentController extends Controller
     public function input(Generation $generation)
     {
         $disk = Storage::disk('local');
-        abort_unless($generation->input_path && $disk->exists($generation->input_path), 404);
+        abort_unless($generation->input_path && $disk->fileExists($generation->input_path), 404);
 
         return response($disk->get($generation->input_path), 200, [
             'Content-Type' => $disk->mimeType($generation->input_path) ?: 'application/octet-stream',
@@ -75,7 +75,7 @@ class ContentController extends Controller
         Storage::disk('public')->delete(array_unique($paths));
         // Several pictures of one request share the uploaded photo.
         if ($generation->input_path && ! Generation::where('input_path', $generation->input_path)->whereKeyNot($generation->id)->exists()) {
-            Storage::disk('local')->delete($generation->input_path);
+            \App\Services\Generation\GenerationService::removeInput($generation->input_path);
         }
         $generation->delete();
 
@@ -147,7 +147,7 @@ class ContentController extends Controller
             'user' => $this->user($g->user),
             'result_url' => $g->result_path ? Storage::disk('public')->url($g->result_path) : null,
             'result_text' => $g->result_text,
-            'has_input' => $g->input_path && Storage::disk('local')->exists($g->input_path),
+            'has_input' => $g->input_path && Storage::disk('local')->fileExists($g->input_path),
             'error' => $g->error, 'rating' => $g->rating, 'is_favorite' => $g->is_favorite,
             'created_at' => $g->created_at?->toIso8601String(),
             'seconds' => $g->started_at && $g->finished_at ? (int) $g->started_at->diffInSeconds($g->finished_at) : null,

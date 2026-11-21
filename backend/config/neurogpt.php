@@ -68,6 +68,7 @@ return [
         'return_url' => env('YOOKASSA_RETURN_URL', env('APP_URL')),
         // Webhooks are accepted only from these networks (official YooKassa list).
         'verify_ip' => (bool) env('YOOKASSA_VERIFY_IP', true),
+        'auto_renewal' => (bool) env('YOOKASSA_AUTO_RENEWAL', false),
         'allowed_ips' => [
             '185.71.76.0/27', '185.71.77.0/27', '77.75.153.0/25', '77.75.156.11',
             '77.75.156.35', '77.75.154.128/25', '2a02:5180::/32',
@@ -78,6 +79,17 @@ return [
             'email' => env('YOOKASSA_RECEIPT_EMAIL'),
             'tax_system_code' => (int) env('YOOKASSA_TAX_SYSTEM', 1),
             'vat_code' => (int) env('YOOKASSA_VAT_CODE', 1),
+        ],
+    ],
+
+    'renewal' => [
+        'enabled' => true,
+        'steps' => [
+            ['days' => 30, 'wait_hours' => 0],
+            ['days' => 14, 'wait_hours' => 24],
+            ['days' => 7, 'wait_hours' => 48],
+            ['days' => 5, 'wait_hours' => 168],
+            ['days' => 2, 'wait_hours' => 168],
         ],
     ],
 
@@ -100,7 +112,7 @@ return [
 
     'features' => [
         // The "Песня" tab is shown as "Coming soon" until this is true.
-        'songs' => (bool) env('FEATURE_SONGS', false),
+        'songs' => (bool) env('FEATURE_SONGS', (bool) env('KIE_API_KEY')),
     ],
 
     'music' => [

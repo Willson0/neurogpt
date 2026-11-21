@@ -29,6 +29,15 @@
     <p v-if="!offer" class="plan-description glass">Сейчас нет доступных подписок.</p>
     <p v-else-if="app.plan !== 'free' && offer.plan !== app.plan" class="plan-description glass">Новая подписка начнётся после оплаты. Оставшиеся дни сохранятся.</p>
     <PayMethod v-if="offer" />
+    <PromoField v-if="offer" kind="plan" :offer="offer" />
+    <label v-if="canRenew" class="plan-description glass">
+      <input type="checkbox" :checked="app.autoRenewOffer === offer.id" @change="app.autoRenewOffer = $event.target.checked ? offer.id : null">
+      Продлевать картой до {{ app.priceLabel(offer.price, offer.stars) }} на {{ offer.days }} {{ daysLabel(offer.days) }} после окончания подписки. При нехватке средств возможна оплата меньшего срока по цене магазина.
+    </label>
+    <div v-if="app.user?.auto_renewal" class="plan-current glass">
+      <span>Автопродление подключено</span>
+      <button class="pill-btn" type="button" :disabled="stopping" @click="stopRenewal">Отключить</button>
+    </div>
 
     <div v-if="app.payment && app.payment.purpose === 'plan'" class="banner glass">
       <Sticker name="hourglass" :size="32" />
@@ -43,22 +52,38 @@ import { useApp } from '../stores/app'
 import { plural, reduceMotion } from '../services/format'
 import { tg } from '../services/telegram'
 import Sticker from '../components/Sticker.vue'
+import { api } from '../services/api'
+import PromoField from '../components/PromoField.vue'
 import PayMethod from '../components/PayMethod.vue'
 
 export default {
   name: 'PlansView',
-  components: { Sticker, PayMethod },
-  data: () => ({ tilt: {} }),
+  components: { Sticker, PayMethod, PromoField },
+  data: () => ({ tilt: {}, stopping: false }),
   computed: {
     app() { return useApp() },
     offer() { return this.app.subscriptionOffer },
-    price() { return this.app.priceLabel(this.offer.price, this.offer.stars) },
+    price() { return this.app.checkoutPrice('plan', this.offer) },
+    canRenew() { return this.app.payments.auto_renewal && this.app.method === 'card' && this.offer?.days === this.app.payments.auto_renewal_days },
     expiresAt() {
       const date = this.app.user?.plan_expires_at
       return date ? new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
     },
   },
   methods: {
+    async stopRenewal() {
+      this.stopping = true
+      try {
+        const result = await api.stopRenewal()
+        this.app.setUser(result.user)
+        this.app.autoRenewOffer = null
+        this.app.toast('Автопродление отключено')
+      } catch (error) {
+        this.app.handleActionError(error)
+      } finally {
+        this.stopping = false
+      }
+    },
     daysLabel(days) { return plural(days, 'день', 'дня', 'дней') },
     chooseOffer(id) { this.app.subscriptionOfferId = Number(id); tg.haptic('selection') },
     onMove(e) {

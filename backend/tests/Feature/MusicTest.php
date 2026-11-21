@@ -148,6 +148,32 @@ class MusicTest extends TestCase
         Storage::disk('local')->assertMissing(Generation::findOrFail($voice)->input_path);
     }
 
+    public function test_uploaded_music_references_are_forwarded_as_provider_urls_then_removed(): void
+    {
+        $this->user(101, 100);
+        $audio = $this->audio();
+        $wav = fn () => UploadedFile::fake()->createWithContent('take.wav', $audio);
+        Http::fake([
+            'kieai.redpandaai.co/api/file-stream-upload' => Http::sequence()
+                ->push(['code' => 200, 'data' => ['downloadUrl' => 'https://example.test/reference.png']])
+                ->push(['code' => 200, 'data' => ['downloadUrl' => 'https://example.test/reference.wav']]),
+            'api.kie.ai/api/v1/jobs/createTask' => Http::response(['code' => 200, 'data' => ['taskId' => 'with-refs']]),
+            'api.kie.ai/api/v1/jobs/recordInfo*' => Http::response(['code' => 200, 'data' => ['state' => 'fail', 'failMsg' => 'Test failure']]),
+        ]);
+
+        $id = $this->as(101)->post('/api/music', [
+            'operation' => 'generate',
+            'references' => ['image_urls' => [UploadedFile::fake()->image('ref.png')], 'audio_urls' => [$wav()]],
+        ], ['Accept' => 'application/json'])->assertCreated()->json('data.0.id');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/createTask')
+            && $request['input']['image_urls'] === ['https://example.test/reference.png']
+            && $request['input']['audio_urls'] === ['https://example.test/reference.wav']);
+        $g = Generation::findOrFail($id);
+        $this->assertSame('failed', $g->status);
+        Storage::disk('local')->assertMissing($g->input_path);
+        $this->assertSame(100, User::findOrFail(101)->balance);
+    }
+
     public function test_incompatible_inputs_are_rejected_before_billing(): void
     {
         $user = $this->user(101, 100);
@@ -156,8 +182,8 @@ class MusicTest extends TestCase
             'instrumental' => true, 'lyrics' => 'Текст должен быть исключён',
         ])->assertUnprocessable()->assertJsonValidationErrors('style');
         $this->as(101)->postJson('/api/music', [
-            'operation' => 'generate', 'prompt' => 'Тема', 'audio_urls' => ['file:///some/path'],
-        ])->assertUnprocessable()->assertJsonValidationErrors('audio_urls.0');
+            'operation' => 'generate', 'prompt' => 'Тема', 'references' => ['audio_urls' => ['file:///some/path']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('references.audio_urls.0');
         $this->assertSame(100, $user->refresh()->balance);
         Http::assertNotSent(fn ($request) => str_contains($request->url(), 'api.kie.ai'));
     }

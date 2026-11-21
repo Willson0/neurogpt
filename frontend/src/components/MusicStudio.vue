@@ -64,8 +64,13 @@
           <template v-if="!draft.custom_mode">
             <label class="music-field"><span>Музыкальный стиль</span><textarea v-model.trim="draft.style" rows="2" maxlength="1000" /></label>
             <label v-if="!draft.instrumental" class="music-field"><span>Текст как референс</span><textarea v-model="draft.lyrics" rows="3" maxlength="5000" /></label>
-            <label class="music-field" v-for="item in references" :key="item.id"><span>{{ item.label }}</span><textarea v-model="draft[item.id]" :rows="item.rows" placeholder="https://…" /></label>
-            <p class="music-muted">Одна HTTPS-ссылка на строку. MIDI использует Suno V6 Wild.</p>
+            <div v-for="item in references" :key="item.id" class="music-option">
+              <label class="pill-btn">{{ item.label }}<input class="visually-hidden" type="file" :accept="item.accept" :multiple="item.limit > 1" @change="pickReferences(item, $event)"></label>
+              <div v-for="(file, index) in chosenFiles[item.id]" :key="index" class="music-option">
+                <span>{{ file.name }}</span><button type="button" class="music-reset" :aria-label="'Удалить ' + file.name" @click="chosenFiles[item.id].splice(index, 1)">Удалить</button>
+              </div>
+            </div>
+            <p class="music-muted">До 10 МБ на фото, до 20 МБ на аудио или видео и до 50 МБ на всё. Стиль и текст входят в лимит 10 референсов.</p>
           </template>
           <div v-if="draft.style" class="music-chips">
             <button type="button" class="pill-btn" :disabled="busy || running('boost_style')" @click="boostStyle">{{ running('boost_style') ? 'Уточняем стиль…' : 'Уточнить стиль · ' + priceLabel('boost_style') }}</button>
@@ -115,8 +120,8 @@
       </div>
       <MusicAudioInput v-if="uploadEdits.includes(editing.operation)" v-model="editFile" label="Исходное аудио · до 20 МБ" />
       <template v-if="editing.operation === 'mashup'">
-        <label class="music-field"><span>Первая HTTPS-ссылка на аудио</span><input v-model.trim="editForm.firstUrl" type="url" required></label>
-        <label class="music-field"><span>Вторая HTTPS-ссылка на аудио</span><input v-model.trim="editForm.secondUrl" type="url" required></label>
+        <MusicAudioInput v-model="editFile" label="Первая аудиодорожка · до 20 МБ" />
+        <MusicAudioInput v-model="secondEditFile" label="Вторая аудиодорожка · до 20 МБ" />
         <label class="music-field"><span>Длина, сек.</span><input v-model.number="editForm.duration" type="number" min="10" max="360" placeholder="20"></label>
       </template>
       <template v-if="editing.operation === 'stems'">
@@ -229,10 +234,9 @@ const styles = [
   { name: 'Рок', value: 'Alternative rock, electric guitars, live drums' },
 ]
 const references = [
-  { id: 'image_urls', label: 'Изображения · до 5', rows: 2 },
-  { id: 'audio_urls', label: 'Аудиореференсы', rows: 2 },
-  { id: 'video_urls', label: 'Видео · 1 ссылка', rows: 1 },
-  { id: 'midi_urls', label: 'MIDI · 1 ссылка', rows: 1 },
+  { id: 'image_urls', label: 'Загрузить изображения', accept: 'image/jpeg,image/png,image/webp,image/bmp,.bmp', limit: 5, mb: 10 },
+  { id: 'audio_urls', label: 'Загрузить аудио', accept: 'audio/*,.m4a,.webm', limit: 10, mb: 20 },
+  { id: 'video_urls', label: 'Загрузить видео', accept: 'video/mp4,video/quicktime,video/webm', limit: 1, mb: 20 },
 ]
 const sliderSettings = [
   { id: 'style_weight', label: 'Следование стилю', max: 1, step: .01, default: .5 },
@@ -256,7 +260,7 @@ if (!app.musicDraft) app.musicDraft = {
   model: models.value.find(m => !app.isLocked(m))?.id || 'suno-v6', custom_mode: false, prompt: '', title: '', style: '',
   lyrics: '', lyricPrompt: '', instrumental: false, duration: '', vocal_gender: '', negative_tags: '',
   style_weight: '', weirdness_constraint: '', audio_weight: '', variety: '', profile_id: '',
-  image_urls: '', audio_urls: '', video_urls: '', midi_urls: '', auto_send: false,
+  auto_send: false,
 }
 const draft = app.musicDraft
 const jobs = ref([])
@@ -277,6 +281,21 @@ const cancelling = ref(null)
 const editing = ref(null)
 const editForm = ref({})
 const editFile = ref(null)
+const secondEditFile = ref(null)
+const chosenFiles = reactive({ image_urls: [], audio_urls: [], video_urls: [] })
+
+function pickReferences(item, event) {
+  const files = Array.from(event.target.files)
+  event.target.value = ''
+  if (!files.length) return
+  const next = item.limit === 1 ? files : [...chosenFiles[item.id], ...files]
+  if (next.length > item.limit || files.some(file => file.size > item.mb * 1024 * 1024)) {
+    error.value = 'Можно загрузить до ' + item.limit + ' файлов этого типа, до ' + item.mb + ' МБ на файл.'
+    return
+  }
+  error.value = ''
+  chosenFiles[item.id] = next
+}
 const voiceFile = ref(null)
 const verificationFile = ref(null)
 const voice = reactive({ start: 0, end: 10, language: 'en', title: '', description: '', style: '', singer_skill_level: '' })
@@ -289,9 +308,7 @@ let lastPlayer
 let closed = false
 let polling = false
 
-const listUrls = (value) => value.split(/\r?\n/).map(url => url.trim()).filter(Boolean)
-const midiModel = computed(() => !draft.custom_mode && listUrls(draft.midi_urls).length > 0 ? 'suno-v6-wild' : draft.model)
-const chosenModel = computed(() => models.value.find(model => model.id === midiModel.value && !app.isLocked(model)))
+const chosenModel = computed(() => models.value.find(model => model.id === draft.model && !app.isLocked(model)))
 const selectableProfiles = computed(() => profiles.value.filter(p => !draft.instrumental || p.music.profile_type === 'style_persona'))
 const sliders = computed(() => sliderSettings.filter(s => !draft.instrumental || s.id !== 'audio_weight'))
 const activeJobs = computed(() => jobs.value.filter(item => ['queued', 'processing'].includes(item.status)))
@@ -473,12 +490,12 @@ async function cancel(item) {
   }
 }
 
-async function submit(operation, fields, file) {
+async function submit(operation, fields, file, uploads) {
   if (busy.value) return null
   busy.value = true
   error.value = ''
   try {
-    const result = await api.createMusic({ operation, ...fields }, file)
+    const result = await api.createMusic({ operation, ...fields }, file, uploads)
     app.setUser(result.user)
     if (closed) return null
     updateJobs(result.data)
@@ -492,7 +509,7 @@ async function submit(operation, fields, file) {
     return result.data[0]
   } catch (e) {
     if (e.status === 422) error.value = Object.values(e.body?.errors || {}).flat()[0] || 'Проверьте параметры.'
-    else if (e.status === 413) error.value = 'Аудиофайл слишком большой.'
+    else if (e.status === 413) error.value = 'Размер загрузки превышает лимит.'
     else if (e.status === 404) error.value = 'Модель, профиль или исходный трек недоступны.'
     else app.handleActionError(e)
     return null
@@ -504,7 +521,7 @@ async function submit(operation, fields, file) {
 async function generate() {
   if (!chosenModel.value) return
   const { model, prompt, title, style, lyrics, custom_mode, instrumental, auto_send, profile_id, negative_tags } = draft
-  const fields = { model: midiModel.value || model, custom_mode, instrumental, style, lyrics, profile_id: selectableProfiles.value.some(p => p.id === profile_id) ? profile_id : '', auto_send, negative_tags }
+  const fields = { model, custom_mode, instrumental, style, lyrics, profile_id: selectableProfiles.value.some(p => p.id === profile_id) ? profile_id : '', auto_send, negative_tags }
   if (custom_mode) {
     fields.title = title
     fields.duration = draft.duration
@@ -512,9 +529,12 @@ async function generate() {
     sliders.value.forEach(s => { fields[s.id] = draft[s.id] })
   } else {
     fields.prompt = prompt
-    references.forEach(item => { const urls = listUrls(draft[item.id]); if (urls.length) fields[item.id] = urls })
   }
-  if (await submit('generate', fields)) selectTab('library')
+  const uploads = custom_mode ? {} : Object.fromEntries(references.map(item => ['references[' + item.id + ']', chosenFiles[item.id]]))
+  if (await submit('generate', fields, null, uploads)) {
+    for (const item of references) chosenFiles[item.id] = []
+    selectTab('library')
+  }
 }
 
 function generateLyrics() {
@@ -552,6 +572,7 @@ function openEdit(details) {
     instrumental: false, auto_send: draft.auto_send, negative_tags: '',
   }
   editFile.value = null
+  secondEditFile.value = null
   selectTab('compose')
   nextTick(() => studio.value?.querySelector('form')?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
 }
@@ -566,7 +587,14 @@ async function submitEdit() {
   const form = { ...editForm.value, source_id: details.generation?.id, track: details.index }
   if (form.instrumental && profiles.value.find(p => p.id === form.profile_id)?.music.profile_type === 'voice_persona') delete form.profile_id
   if (noSongSettings.includes(details.operation)) form.model = 'suno-v6'
-  if (details.operation === 'mashup') form.mashup_urls = [form.firstUrl, form.secondUrl]
+  if (details.operation === 'mashup') {
+    if (!editFile.value || !secondEditFile.value) {
+      error.value = 'Выберите две аудиодорожки.'
+      return
+    }
+    if (await submit('mashup', form, null, { mashup_files: [editFile.value, secondEditFile.value] })) closeEdit()
+    return
+  }
   if (await submit(details.operation, form, editFile.value)) closeEdit()
 }
 

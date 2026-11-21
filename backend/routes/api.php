@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\Admin\CatalogController;
 use App\Http\Controllers\Api\Admin\ContentController;
 use App\Http\Controllers\Api\Admin\PaymentsController;
+use App\Http\Controllers\Api\Admin\PromosController;
+use App\Http\Controllers\Api\Admin\RenewalController;
 use App\Http\Controllers\Api\Admin\SettingsController;
 use App\Http\Controllers\Api\Admin\UsersController;
 use App\Http\Controllers\Api\BootstrapController;
@@ -52,6 +54,8 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
     Route::get('chats/{chat}', [ChatController::class, 'show'])->whereNumber('chat');
     Route::post('chats/messages', [ChatController::class, 'send'])->middleware('throttle:generate');
 
+    Route::post('payments/promo', [PaymentController::class, 'quote'])->middleware('throttle:pay');
+    Route::delete('payments/renewal', [PaymentController::class, 'stopRenewal']);
     Route::post('payments/topup', [PaymentController::class, 'topup'])->middleware('throttle:pay');
     Route::post('payments/plan', [PaymentController::class, 'plan'])->middleware('throttle:pay');
     Route::get('payments/{payment}', [PaymentController::class, 'show'])->whereNumber('payment');
@@ -96,6 +100,11 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::get('users', [UsersController::class, 'index']);
     Route::patch('users/{user}', [UsersController::class, 'update'])->whereNumber('user');
     Route::post('users/{user}/balance', [UsersController::class, 'balance'])->whereNumber('user');
+    Route::get('renewal', [RenewalController::class, 'show']);
+    Route::put('renewal', [RenewalController::class, 'update']);
+    Route::get('promos', [PromosController::class, 'index']);
+    Route::post('promos', [PromosController::class, 'create']);
+    Route::patch('promos/{type}/{id}', [PromosController::class, 'update'])->whereIn('type', ['percent', 'fixed'])->whereNumber('id');
     Route::get('payments', [PaymentsController::class, 'index']);
     Route::post('payments/{payment}/sync', [PaymentsController::class, 'sync'])->whereNumber('payment');
     // Reading is open to every admin (the secret key is never returned); changing is checked inside for the main admin.

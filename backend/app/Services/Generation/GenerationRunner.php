@@ -234,7 +234,14 @@ class GenerationRunner
         $filtered = $e instanceof ContentFiltered || ($e instanceof RequestException
             && preg_match('/content_policy|safety|moderation|sensitive/i', (string) $e->response?->body()));
 
-        Log::warning('Generation failed', ['id' => $g->id, 'error' => Bot::scrub($e->getMessage())]);
+        Log::warning('Generation failed', [
+            'id' => $g->id,
+            'model' => $g->model?->slug,
+            'driver' => $g->model?->driver,
+            'task' => $g->provider_task_id,
+            'operation' => $g->params['music']['operation'] ?? null,
+            'error' => Bot::scrub($e->getMessage()),
+        ]);
 
         $refunded = DB::transaction(function () use ($g, $filtered, $unavailable) {
             $locked = Generation::query()->whereKey($g->id)->lockForUpdate()->first();
@@ -269,7 +276,7 @@ class GenerationRunner
         }
         $shared = Generation::where('input_path', $g->input_path)->whereIn('status', ['queued', 'processing'])->exists();
         if (! $shared) {
-            Storage::disk('local')->delete($g->input_path);
+            GenerationService::removeInput($g->input_path);
         }
     }
 

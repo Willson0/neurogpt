@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Http\Middleware\AdminOnly;
 use App\Services\Payments\SubscriptionCatalog;
+use App\Services\Payments\RenewSubscriptions;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -25,6 +26,8 @@ class UserResource extends JsonResource
             'plan' => $u->activePlan(),
             'plan_name' => SubscriptionCatalog::name($u->activePlan()),
             'plan_expires_at' => $u->activePlan() === 'free' ? null : $u->plan_expires_at?->toIso8601String(),
+            'auto_renewal' => $u->auto_continue && $u->last_payment_method_id
+                && RenewSubscriptions::mandate($u->id)->first()?->renew_opt_in === true,
             'streak' => $u->streak,
             'is_admin' => AdminOnly::allows($u),
             'is_owner' => AdminOnly::isOwner($u),

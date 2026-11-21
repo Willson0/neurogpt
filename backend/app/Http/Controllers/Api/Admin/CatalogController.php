@@ -278,16 +278,23 @@ class CatalogController extends Controller
             'sort' => ['sometimes', 'integer', 'between:0,65000'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
+        if ($creating) {
+            $data += $request->validate(['kind' => ['sometimes', Rule::in(['image', 'video'])]]);
+        }
         $photoset ??= new Photoset(['sort' => (int) Photoset::max('sort') + 1]);
         $photoset->fill($data + ['edited_at' => now()])->save();
-        Settings::forgetDeleted("photoset:{$photoset->name}");
+        if ($photoset->kind === 'image') {
+            Settings::forgetDeleted("photoset:{$photoset->name}");
+        }
 
         return response()->json(['data' => $this->photoset($photoset->refresh())], $creating ? 201 : 200);
     }
 
     public function destroyPhotoset(Photoset $photoset)
     {
-        Settings::markDeleted("photoset:{$photoset->name}");
+        if ($photoset->kind === 'image') {
+            Settings::markDeleted("photoset:{$photoset->name}");
+        }
         if ($photoset->prompt_id) {
             Settings::markDeleted("bot:prompt:{$photoset->prompt_id}");
         }
@@ -310,7 +317,7 @@ class CatalogController extends Controller
 
         try {
             [$generation] = $service->create($request->user(), [
-                'kind' => 'image', 'photoset_id' => $photoset->id, 'format' => '9:16', 'model' => $request->input('model'),
+                'kind' => $photoset->kind, 'photoset_id' => $photoset->id, 'format' => '9:16', 'model' => $request->input('model'),
                 'prompt' => $request->hasFile('file') ? '' : 'No reference photo is attached for this example: show a fictional adult person who fits the scene.',
             ], $request->file('file'), free: true);
         } catch (TooManyActive $e) {
@@ -324,7 +331,7 @@ class CatalogController extends Controller
     public function photosetCover(Request $request, Photoset $photoset)
     {
         $data = $request->validate(['generation_id' => ['required', 'integer']]);
-        $g = Generation::where('user_id', $request->user()->id)->where('photoset_id', $photoset->id)->where('status', 'done')
+        $g = Generation::where('user_id', $request->user()->id)->where('photoset_id', $photoset->id)->where('kind', $photoset->kind)->where('status', 'done')
             ->whereNotNull('result_path')->find($data['generation_id']);
         $disk = Storage::disk('public');
         if (! $g || ! $disk->exists($g->result_path)) {
@@ -332,7 +339,7 @@ class CatalogController extends Controller
         }
         // A copy: the cover stays even if the generation is deleted later.
         $path = 'covers/'.Str::uuid().'.'.strtolower(pathinfo($g->result_path, PATHINFO_EXTENSION));
-        $disk->copy($g->result_path, $path);
+        abort_unless($disk->copy($g->result_path, $path), 500, 'Не удалось сохранить пример');
         $photoset->update(['cover_url' => '/storage/'.$path, 'edited_at' => now()]);
 
         return response()->json(['data' => $this->photoset($photoset)]);
@@ -340,7 +347,7 @@ class CatalogController extends Controller
 
     private function photoset(Photoset $p): array
     {
-        return $p->only(['id', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending', 'trend_hint', 'sort', 'is_active', 'prompt_id']);
+        return $p->only(['id', 'kind', 'name', 'description', 'prompt', 'cover_url', 'seed', 'palette', 'is_trending', 'trend_hint', 'sort', 'is_active', 'prompt_id']);
     }
 
     // ---------- news cards ----------
@@ -387,7 +394,21 @@ class CatalogController extends Controller
 
     public function upload(Request $request)
     {
-        $request->validate(['file' => ['required', 'file', 'max:'.config('neurogpt.upload_max_kb'), 'mimetypes:image/jpeg,image/png,image/webp']]);
+        $request->validate([
+            'kind' => ['sometimes', 'in:image,video'],
+            'file' => ['required', 'file', 'max:20480', 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm'],
+        ]);
+        $file = $request->file('file');
+        $mime = $file->getMimeType();
+        if (str_starts_with($mime ?? '', 'video/')) {
+            abort_unless($request->input('kind') === 'video', 422, 'Видео подходит только для видеосета');
+            $ext = match ($mime) { 'video/webm' => 'webm', 'video/quicktime' => 'mov', default => 'mp4' };
+            $path = Storage::disk('public')->putFileAs('covers', $file, Str::uuid().'.'.$ext);
+            abort_unless($path, 500, 'Не удалось сохранить пример');
+
+            return response()->json(['url' => '/storage/'.$path], 201);
+        }
+        $request->validate(['file' => ['max:'.config('neurogpt.upload_max_kb')]]);
         $image = ImageNormalizer::upload($request->file('file')->getRealPath());
         if (! @getimagesizefromstring($image->bytes)) {
             throw ValidationException::withMessages(['file' => 'Не получилось прочитать картинку']);

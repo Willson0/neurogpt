@@ -68,6 +68,8 @@ export const useApp = defineStore('app', {
     packIndex: 1,
     subscriptionOfferId: null,
     payMethod: 'card',
+    promo: { plan: null, topup: null },
+    autoRenewOffer: null,
     payment: null, // pending payment being watched
     busy: false,
 
@@ -102,6 +104,18 @@ export const useApp = defineStore('app', {
     method() { return this.payMethods.includes(this.payMethod) ? this.payMethod : this.payMethods[0] || null },
     /** Price of a pack or plan in the chosen payment method, ready to show. */
     priceLabel() { return (rub, stars) => (this.method === 'stars' ? `${Number(stars || 0).toLocaleString('ru-RU')} ⭐` : `${Number(rub || 0).toLocaleString('ru-RU')} ₽`) },
+    appliedPromo() {
+      return (kind, offer) => {
+        const quote = this.promo[kind]
+        return quote && quote.offerId === offer?.id && quote.originalPrice === offer.price ? quote : null
+      }
+    },
+    checkoutPrice() {
+      return (kind, offer) => {
+        const price = this.appliedPromo(kind, offer) || offer
+        return this.priceLabel(price.price, price.stars)
+      }
+    },
     modelList: (s) => s.models[s.mode === 'tools' ? 'image' : s.mode] || [],
     model() {
       const list = this.models[this.mode === 'tools' ? 'image' : this.mode] || []
@@ -116,7 +130,7 @@ export const useApp = defineStore('app', {
     },
     pack: (s) => s.packs[s.packIndex] || { tokens: 0, price: 0 },
     isLocked: (s) => (m) => (m.is_sub ?? Boolean(m.min_plan && m.min_plan !== 'free')) && (!s.user?.plan || s.user.plan === 'free'),
-    trends: (s) => s.photosets.filter((p) => p.trending),
+    trends: (s) => s.photosets.filter((p) => p.trending && p.kind !== 'video'),
   },
 
   actions: {
@@ -277,16 +291,18 @@ export const useApp = defineStore('app', {
     // ---------- generation ----------
     async start(extra = {}) {
       const photoset = extra.photoset || null
-      const kind = this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image'
+      const kind = photoset?.kind || (this.mode === 'video' ? 'video' : this.mode === 'song' ? 'song' : 'image')
       if (kind === 'song' && this.songsOff) return this.toast('Песни скоро появятся', 'hourglass')
-      if (!photoset && this.isLocked(this.model)) { this.toast('Модель доступна по подписке'); return this.push('plans') }
-      const cost = photoset ? this.models.image.find((m) => m.id === this.modelSel.image)?.price ?? this.model.price : this.cost
+      const model = photoset ? this.models[kind].find(m => m.id === (extra.model || this.modelSel[kind])) || this.models[kind][0] : this.model
+      if (!model?.id) return this.toast('Нет доступных моделей')
+      if (this.isLocked(model)) { this.toast('Модель доступна по подписке'); return this.push('plans') }
+      const cost = photoset ? model.durations?.find(d => d.seconds === extra.duration)?.price ?? model.durations?.[0]?.price ?? model.price : this.cost
       if (this.balance < cost) { tg.haptic('warning'); return this.openSheet('need', { lack: cost - this.balance }) }
       if (this.busy) return
       this.busy = true
       try {
         const body = photoset
-          ? { kind: 'image', model: this.modelSel.image, photoset_id: photoset.id, prompt: extra.prompt || '' }
+          ? { kind, model: model.id, photoset_id: photoset.id, prompt: extra.prompt || '', duration: extra.duration, format: extra.format }
           : {
             kind, model: this.model.id, prompt: this.prompt.trim(), format: kind === 'song' ? undefined : this.format.ratio,
             duration: kind === 'video' ? this.durationOpt?.seconds : kind === 'song' ? this.songDuration : undefined,
@@ -451,19 +467,29 @@ export const useApp = defineStore('app', {
     },
 
     // ---------- billing ----------
-    async pay(kind) {
+    async pay(kind, usePromo = true) {
       if (this.busy) return
       if (kind === 'plan' && !this.subscriptionOffer) return
       if (kind === 'topup' && !this.pack.id) return
       const method = this.method
       if (!method) return this.toast('Оплата временно недоступна', 'cry')
       if (method === 'stars' && !tg.canInvoice) return this.toast('Оплата звёздами работает в Telegram')
+      const offer = kind === 'topup' ? this.pack : this.subscriptionOffer
+      const promo = usePromo && this.appliedPromo(kind, offer)
+      const extra = promo ? { promo: promo.code, expected_payable: method === 'stars' ? promo.stars : promo.price } : {}
+      if (kind === 'plan') extra.auto_renew = method === 'card' && this.payments.auto_renewal && this.autoRenewOffer === offer.id
       this.busy = true
       try {
-        const r = kind === 'topup'
-          ? await api.topup(this.pack, method)
-          : await api.buyPlan(this.subscriptionOffer, method)
+        const r = kind === 'topup' ? await api.topup(offer, method, extra) : await api.buyPlan(offer, method, extra)
         this.payment = { id: r.data.id, purpose: r.data.purpose, tokens: r.data.tokens, plan: r.data.plan, startedAt: Date.now() }
+        if (r.data.status === 'succeeded') {
+          this.paymentSucceeded(await api.payment(r.data.id))
+          return
+        }
+        if (!r.data.confirmation_url) {
+          this.watchPayment(600)
+          return
+        }
         if (method === 'stars') {
           this.busy = false
           const status = await tg.openInvoice(r.data.confirmation_url)
@@ -500,6 +526,8 @@ export const useApp = defineStore('app', {
     paymentSucceeded(r) {
       const p = this.payment
       this.payment = null
+      this.promo[p.purpose] = null
+      this.autoRenewOffer = null
       this.setUser(r.user)
       tg.haptic('success')
       confetti()

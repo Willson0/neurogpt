@@ -59,7 +59,7 @@ class Generation extends Model
     public function title(): string
     {
         return match (true) {
-            $this->photoset_id !== null => 'Фотосет «'.($this->photoset?->name ?? '…').'»',
+            $this->photoset_id !== null => ($this->kind === 'video' ? 'Видеосет «' : 'Фотосет «').($this->photoset?->name ?? '…').'»',
             $this->kind === 'tool' => (string) (config("neurogpt.tools.{$this->tool}.name") ?? 'Инструмент'),
             $this->kind === 'video' => 'Видео',
             isset($this->params['music']) => $this->params['music']['label'],

@@ -6,6 +6,7 @@ use App\Exceptions\ContentFiltered;
 use App\Exceptions\ProviderUnavailable;
 use App\Models\AiModel;
 use App\Models\Generation;
+use App\Services\Telegram\Bot;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -63,9 +64,28 @@ class KieProvider implements AsyncProvider, Provider
     public function submit(Generation $generation, AiModel $model, ?string $inputPath): string
     {
         $payload = isset($generation->params['music'])
-            ? $this->music->request($generation, $inputPath ? $this->uploadAudio($inputPath) : null)
+            ? $this->musicRequest($generation, $inputPath)
             : ['model' => $model->provider_model, 'input' => $this->input($generation, $model, $inputPath ? $this->upload($inputPath) : null)];
         return $this->taskId($this->create($payload));
+    }
+
+    private function musicRequest(Generation $generation, ?string $inputPath): array
+    {
+        $fields = $generation->params['music']['upload_fields'] ?? [];
+        if (! $fields) {
+            return $this->music->request($generation, $inputPath ? $this->uploadMusicFile($inputPath) : null);
+        }
+
+        $payload = $this->music->request($generation, null);
+        foreach ($fields as $field) {
+            $files = $inputPath ? glob($inputPath.'/'.$field.'/*') : [];
+            if (! $files) {
+                throw new RuntimeException('Missing music references');
+            }
+            $payload['input'][$field] = array_map($this->uploadMusicFile(...), $files);
+        }
+
+        return $payload;
     }
 
     private function taskId(array $data): string
@@ -220,15 +240,16 @@ class KieProvider implements AsyncProvider, Provider
         return $url;
     }
 
-    private function uploadAudio(string $path): string
+    private function uploadMusicFile(string $path): string
     {
         $stream = fopen($path, 'rb');
         if (! $stream) {
             throw new RuntimeException('Cannot read music upload');
         }
         try {
-            $response = $this->http(120)->attach('file', $stream, basename($path))
-                ->post(config('neurogpt.providers.kie.stream_upload_url'), ['uploadPath' => 'neurogpt/music']);
+            $response = $this->http(60)->attach('file', $stream, basename($path))
+                ->post(config('neurogpt.providers.kie.stream_upload_url'), ['uploadPath' => 'neurogpt/music', 'fileName' => Str::uuid().'.'.pathinfo($path, PATHINFO_EXTENSION),
+                ]);
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
@@ -236,7 +257,7 @@ class KieProvider implements AsyncProvider, Provider
         }
         $url = $response->json('data.downloadUrl');
         if ((int) ($response->json('code') ?? $response->status()) !== 200 || ! is_string($url) || ! str_starts_with($url, 'https://')) {
-            $this->refuse((int) ($response->json('code') ?? $response->status()), 'audio upload failed');
+            $this->refuse((int) ($response->json('code') ?? $response->status()), 'music file upload: '.($response->json('msg') ?? 'no download URL'));
         }
 
         return $url;
@@ -297,6 +318,11 @@ class KieProvider implements AsyncProvider, Provider
     /** @return never */
     private function refuse(int $code, string $message): void
     {
+        $key = (string) config('neurogpt.providers.kie.api_key');
+        if ($key !== '') {
+            $message = str_replace($key, '<api-key>', $message);
+        }
+        $message = Str::limit((string) preg_replace('#https?://[^\s"\']+#', '<url>', Bot::scrub($message)), 300);
         if (preg_match('/polic|sensitive|nsfw|violat|prohibit|moderat|safety|flagged|inappropriate|celebrit|minor/i', $message)) {
             throw new ContentFiltered($message);
         }

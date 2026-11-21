@@ -4,7 +4,7 @@ server {
     listen 80;
     server_name app.example.com;
 
-    client_max_body_size 22m;
+    client_max_body_size 52m;
 
     location / {
         proxy_pass http://127.0.0.1:8089;

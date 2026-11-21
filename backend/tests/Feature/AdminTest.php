@@ -39,7 +39,7 @@ class AdminTest extends TestCase
         $this->assertGreaterThan(25, $routes->count());
 
         foreach ($routes as $route) {
-            $uri = '/'.preg_replace('/\{[A-Za-z]+\}/', '1', $route->uri());
+            $uri = '/'.preg_replace('/\{[A-Za-z]+\}/', '1', str_replace('{type}', 'percent', $route->uri()));
             $method = $route->methods()[0];
             $this->as(1)->json($method, $uri)->assertStatus(403);
             $this->flushHeaders()->json($method, $uri, [], ['Accept' => 'application/json'])->assertStatus(401);

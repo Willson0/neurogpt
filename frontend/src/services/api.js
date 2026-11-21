@@ -76,25 +76,28 @@ export const api = {
   updateGeneration: (id, patch) => request('PATCH', `/generations/${id}`, { json: patch }),
   cancelGeneration: (id) => request('POST', `/generations/${id}/cancel`),
   musicProfiles: () => request('GET', '/music/profiles'),
-  createMusic: (fields, file) => {
+  createMusic: (fields, file, uploads = {}) => {
     const values = clean(fields)
-    if (!file) return request('POST', '/music', { json: values })
+    if (!file && !Object.values(uploads).some(files => files.length)) return request('POST', '/music', { json: values })
     const form = new FormData()
     for (const [key, value] of Object.entries(values)) {
       if (Array.isArray(value)) value.forEach((item) => form.append(key + '[]', item))
       else form.append(key, typeof value === 'boolean' ? Number(value) : value)
     }
-    form.append('file', file)
+    if (file) form.append('file', file)
+    for (const [key, files] of Object.entries(uploads)) files.forEach(item => form.append(key + '[]', item))
     return request('POST', '/music', { form })
   },
   musicDownload: (id, track) => blobUrl(`/music/${id}/tracks/${track}/download`),
   sendTrack: (id, track) => request('POST', `/music/${id}/tracks/${track}/send`),
   improvePrompt: (prompt, kind) => request('POST', '/prompt/improve', { json: { prompt, kind } }),
-  topup: (offer, method) => request('POST', '/payments/topup', {
-    json: { offer_id: offer.id, tokens: offer.tokens, expected_price: offer.price, method },
+  promoQuote: (kind, offer, promo) => request('POST', '/payments/promo', { json: { kind, offer_id: offer.id, promo } }),
+  stopRenewal: () => request('DELETE', '/payments/renewal'),
+  topup: (offer, method, extra = {}) => request('POST', '/payments/topup', {
+    json: { offer_id: offer.id, tokens: offer.tokens, expected_price: offer.price, method, ...extra },
   }),
-  buyPlan: (offer, method) => request('POST', '/payments/plan', {
-    json: { offer_id: offer.id, expected_price: offer.price, expected_days: offer.days, method },
+  buyPlan: (offer, method, extra = {}) => request('POST', '/payments/plan', {
+    json: { offer_id: offer.id, expected_price: offer.price, expected_days: offer.days, method, ...extra },
   }),
   payment: (id) => request('GET', `/payments/${id}`),
   publicConfig: () => request('GET', '/config'),
@@ -104,12 +107,15 @@ export const api = {
 export const adminApi = {
   stats: (q) => request('GET', '/admin/stats', { query: clean(q) }),
   settings: () => request('GET', '/admin/settings'),
+  renewal: () => request('GET', '/admin/renewal'),
+  saveRenewal: (values) => request('PUT', '/admin/renewal', { json: values }),
   saveSettings: (values) => request('PUT', '/admin/settings', { json: { values } }),
   list: (what, q) => request('GET', `/admin/${what}`, { query: clean(q) }),
   create: (what, body) => request('POST', `/admin/${what}`, { json: body }),
   update: (what, id, body, method = 'PATCH') => request(method, `/admin/${what}/${id}`, { json: body }),
   remove: (what, id) => request('DELETE', `/admin/${what}/${id}`),
-  upload: (file) => { const form = new FormData(); form.append('file', file); return request('POST', '/admin/upload', { form }) },
+  upload: (file, kind = 'image') => { const form = new FormData(); form.append('file', file); form.append('kind', kind); return request('POST', '/admin/upload', { form }) },
+  updatePromo: (type, id, body) => request('PATCH', '/admin/promos/' + type + '/' + id, { json: body }),
   input: (id) => blobUrl(`/admin/generations/${id}/input`),
   example: (photosetId, file) => { const form = new FormData(); if (file) form.append('file', file); return request('POST', `/admin/photosets/${photosetId}/example`, { form }) },
   useExample: (photosetId, generationId) => request('POST', `/admin/photosets/${photosetId}/cover`, { json: { generation_id: generationId } }),

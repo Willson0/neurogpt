@@ -72,7 +72,11 @@ class UsersController extends Controller
             throw ValidationException::withMessages(['is_blocked' => 'Администратора заблокировать нельзя']);
         }
         if (isset($data['plan'])) {
-            $user->setPlan($data['plan'], $data['plan'] === 'free' ? null : now()->addDays((int) $data['plan_days']))->save();
+            $user->setPlan($data['plan'], $data['plan'] === 'free' ? null : now()->addDays((int) $data['plan_days']));
+            if ($data['plan'] === 'free') {
+                $user->forceFill(['auto_continue' => false]);
+            }
+            $user->save();
         }
         if (array_key_exists('is_blocked', $data)) {
             $user->updateProfile(['is_blocked' => $data['is_blocked']]);

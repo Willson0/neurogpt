@@ -70,10 +70,10 @@ export default {
         const queued = g.items.every((i) => i.status === 'queued')
         return { main: 'Свернуть, пришлю в чат', sec: queued ? 'Отменить, токены вернутся' : null, secDanger: true, onMain: () => a.minimize(), onSec: () => a.cancelGeneration() }
       }
-      if (id === 'topup' && a.pack.id && a.method) return { main: `Оплатить ${a.priceLabel(a.pack.price, a.pack.stars)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
+      if (id === 'topup' && a.pack.id && a.method) return { main: `Оплатить ${a.checkoutPrice('topup', a.pack)}`, shine: true, busy: a.busy, onMain: () => a.pay('topup') }
       if (id === 'plans' && a.subscriptionOffer && a.method) {
         const offer = a.subscriptionOffer
-        const price = a.priceLabel(offer.price, offer.stars)
+        const price = a.checkoutPrice('plan', offer)
         return {
           main: `${a.plan === offer.plan ? 'Продлить' : 'Оформить'} за ${price}`,
           gold: true, shine: true, busy: a.busy, onMain: () => a.pay('plan'),

@@ -8,6 +8,7 @@ use App\Jobs\PollGeneration;
 use App\Models\Generation;
 use App\Models\User;
 use App\Models\UserProfile;
+use App\Services\Admin\ProviderJournal;
 use App\Services\Billing\Wallet;
 use App\Services\Bot\BotSync;
 use App\Services\Telegram\Bot;
@@ -15,6 +16,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -155,7 +157,7 @@ class GenerationRunner
         $music = $result->music;
         try {
             foreach ($result->tracks as $track) {
-                $audio = $this->music->audio($track['url']);
+                $audio = $this->music->audio($track['url'], $g);
                 unset($track['url']);
                 $track['path'] = $this->saveMusicFile($audio);
                 $stored[] = $track['path'];
@@ -188,13 +190,7 @@ class GenerationRunner
             $this->logToBot($g, $stored[0]);
             $this->rewardReferrer($g->user);
             if ($g->params['music']['auto_send']) {
-                foreach ($music['tracks'] as $track) {
-                    try {
-                        $this->sendTrack($g, $track);
-                    } catch (Throwable $e) {
-                        Log::warning('Track was not delivered to Telegram', ['id' => $g->id, 'error' => Bot::scrub($e->getMessage())]);
-                    }
-                }
+                $this->sendTracks($g, $music['tracks']);
             }
         }
     }
@@ -209,23 +205,53 @@ class GenerationRunner
         return $path;
     }
 
-    public function sendTrack(Generation $generation, array $track): bool
+    public function sendTracks(Generation $generation, array $tracks): bool
+    {
+        $chatId = $generation->user->telegram_id;
+        $variants = [];
+        foreach ($tracks as $index => $track) {
+            $title = $track['title'] ?? $generation->params['music']['name'] ?? $generation->prompt;
+            $title = Str::limit(trim((string) preg_replace('/\s+/u', ' ', (string) $title)), 90, '');
+            $variants[$index] = $title !== '' ? $title : 'Без названия';
+        }
+
+        $lines = [];
+        foreach ($variants as $index => $title) {
+            $lines[] = 'Вариант '.($index + 1).' — «'.$title.'»';
+        }
+        $this->bot->sendMessage($chatId, "Ваше аудио готово!\n\n".implode("\n", $lines));
+
+        $sent = true;
+        foreach ($tracks as $index => $track) {
+            try {
+                $sent = $this->sendTrackFile($generation, $index, $track['path'], $variants[$index], $chatId) && $sent;
+            } catch (Throwable $e) {
+                Log::warning('Track was not delivered to Telegram', ['id' => $generation->id, 'error' => Bot::scrub($e->getMessage())]);
+                $sent = false;
+            }
+        }
+
+        return $sent;
+    }
+
+    private function sendTrackFile(Generation $generation, int $index, string $path, string $title, int $chatId): bool
     {
         $disk = Storage::disk('public');
-        $path = $track['path'];
-        $chatId = $generation->user->telegram_id;
-        $title = Str::limit($track['title'] ?: 'NeuroGPT', 100);
+        $caption = 'Вариант '.($index + 1).' — «'.$title.'»';
         if ($disk->size($path) > 48_000_000) {
-            return $this->bot->sendMessage($chatId, $title."\n".$disk->url($path)) !== null;
+            $url = URL::temporarySignedRoute('music.download', now()->addDay(), ['generation' => $generation->id, 'track' => $index]);
+
+            return $this->bot->sendMessage($chatId, $caption."\n".$url) !== null;
         }
         $bytes = $disk->get($path);
         $ext = pathinfo($path, PATHINFO_EXTENSION);
-        $filename = 'neurogpt-'.$generation->id.'.'.$ext;
-        if (in_array($ext, ['mp3', 'm4a'], true) && $this->bot->sendAudio($chatId, $bytes, $filename, $title) !== null) {
+        $safeTitle = trim((string) preg_replace('#[\\\/:*?"<>|\p{C}]#u', ' ', $title), " .");
+        $filename = 'Вариант '.($index + 1).' — '.($safeTitle ?: 'Без названия').'.'.$ext;
+        if (in_array($ext, ['mp3', 'm4a'], true) && $this->bot->sendAudio($chatId, $bytes, $filename, $caption, $title) !== null) {
             return true;
         }
 
-        return $this->bot->sendDocument($chatId, $bytes, $filename, $title) !== null;
+        return $this->bot->sendDocument($chatId, $bytes, $filename, $caption) !== null;
     }
 
     public function fail(Generation $g, Throwable $e): void
@@ -265,6 +291,9 @@ class GenerationRunner
 
         if ($refunded) {
             $this->forgetInput($g);
+            if (! $e instanceof RequestException && ! $e instanceof \Illuminate\Http\Client\ConnectionException) {
+                ProviderJournal::failure((string) $g->model?->driver, 'generation_failed', $g->model, $g, $e);
+            }
         }
     }
 

@@ -40,7 +40,8 @@ class MusicController
     public function signedDownload(int $generation, int $track)
     {
         $song = Generation::where('kind', 'song')->where('status', 'done')->findOrFail($generation);
-        $path = $song->music_result['tracks'][$track]['path'] ?? null;
+        $path = $song->music_result['tracks'][$track]['path']
+            ?? ($track === 0 && ! isset($song->params['music']) ? $song->result_path : null);
         abort_unless($path, 404);
 
         return $this->attachment($song, $path, $track);
@@ -62,7 +63,7 @@ class MusicController
     {
         [$song, $audio] = $studio->track($request->user(), $generation, $track);
         abort_unless(Storage::disk('public')->exists($audio['path']), 404);
-        if (! $runner->sendTrack($song, $audio)) {
+        if (! $runner->sendTracks($song, [$track => $audio])) {
             return response()->json(['message' => 'Не удалось отправить трек. Откройте чат с ботом и нажмите «Старт».'], 502);
         }
 

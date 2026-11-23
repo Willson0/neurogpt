@@ -7,6 +7,7 @@ use App\Exceptions\ProviderUnavailable;
 use App\Models\AiModel;
 use App\Models\Generation;
 use App\Services\Telegram\Bot;
+use App\Services\Admin\ProviderJournal;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -65,15 +66,15 @@ class KieProvider implements AsyncProvider, Provider
     {
         $payload = isset($generation->params['music'])
             ? $this->musicRequest($generation, $inputPath)
-            : ['model' => $model->provider_model, 'input' => $this->input($generation, $model, $inputPath ? $this->upload($inputPath) : null)];
-        return $this->taskId($this->create($payload));
+            : ['model' => $model->provider_model, 'input' => $this->input($generation, $model, $inputPath ? $this->upload($inputPath, $generation) : null)];
+        return $this->taskId($this->create($payload, $generation));
     }
 
     private function musicRequest(Generation $generation, ?string $inputPath): array
     {
         $fields = $generation->params['music']['upload_fields'] ?? [];
         if (! $fields) {
-            return $this->music->request($generation, $inputPath ? $this->uploadMusicFile($inputPath) : null);
+            return $this->music->request($generation, $inputPath ? $this->uploadMusicFile($inputPath, $generation) : null);
         }
 
         $payload = $this->music->request($generation, null);
@@ -82,7 +83,7 @@ class KieProvider implements AsyncProvider, Provider
             if (! $files) {
                 throw new RuntimeException('Missing music references');
             }
-            $payload['input'][$field] = array_map($this->uploadMusicFile(...), $files);
+            $payload['input'][$field] = array_map(fn ($file) => $this->uploadMusicFile($file, $generation), $files);
         }
 
         return $payload;
@@ -100,7 +101,7 @@ class KieProvider implements AsyncProvider, Provider
 
     public function musicMetadata(Generation $generation): string|MediaResult
     {
-        $result = $this->create($this->music->request($generation, null));
+        $result = $this->create($this->music->request($generation, null), $generation);
         $music = $generation->params['music'];
         if ($music['operation'] === 'boost_style') {
             return ! empty($result['result']) ? $this->music->style($result['result']) : $this->taskId($result);
@@ -109,9 +110,10 @@ class KieProvider implements AsyncProvider, Provider
         return $this->music->profile((string) ($result['persona_id'] ?? ''), 'style_persona', $music['name']);
     }
 
-    private function create(array $payload): array
+    private function create(array $payload, Generation $generation): array
     {
-        $res = $this->http()->post($this->url('/api/v1/jobs/createTask'), $payload);
+        $res = ProviderJournal::request('kie', 'submit',
+            fn () => $this->http()->post($this->url('/api/v1/jobs/createTask'), $payload), generation: $generation);
         $body = $res->json() ?? [];
         $code = (int) ($body['code'] ?? $res->status());
         if ($code !== 200) {
@@ -126,7 +128,9 @@ class KieProvider implements AsyncProvider, Provider
         $music = $generation->params['music'] ?? null;
         $taskId = $music ? $this->music->recordId($generation) : $generation->provider_task_id;
         try {
-            $res = $this->http(30)->get($this->url('/api/v1/jobs/recordInfo'), ['taskId' => $taskId]);
+            $res = ProviderJournal::request('kie', 'poll',
+                fn () => $this->http(30)->get($this->url('/api/v1/jobs/recordInfo'), ['taskId' => $taskId]),
+                $model, $generation);
         } catch (\Illuminate\Http\Client\ConnectionException $exception) {
             if ($music) {
                 return null;
@@ -220,16 +224,16 @@ class KieProvider implements AsyncProvider, Provider
     }
 
     /** Uploads the source picture to kie's temporary storage (kept for 24 hours) and returns its link. */
-    private function upload(string $path): string
+    private function upload(string $path, Generation $generation): string
     {
         $mime = mime_content_type($path) ?: 'image/jpeg';
         $ext = match ($mime) { 'image/png' => 'png', 'image/webp' => 'webp', default => 'jpg' };
 
-        $res = $this->http(120)->post(config('neurogpt.providers.kie.upload_url'), [
+        $res = ProviderJournal::request('kie', 'upload_image', fn () => $this->http(120)->post(config('neurogpt.providers.kie.upload_url'), [
             'base64Data' => 'data:'.$mime.';base64,'.base64_encode((string) file_get_contents($path)),
             'uploadPath' => 'neurogpt/inputs',
             'fileName' => Str::uuid().'.'.$ext,
-        ]);
+        ]), generation: $generation);
         $body = $res->json() ?? [];
         $url = $body['data']['downloadUrl'] ?? null;
 
@@ -240,16 +244,16 @@ class KieProvider implements AsyncProvider, Provider
         return $url;
     }
 
-    private function uploadMusicFile(string $path): string
+    private function uploadMusicFile(string $path, Generation $generation): string
     {
         $stream = fopen($path, 'rb');
         if (! $stream) {
             throw new RuntimeException('Cannot read music upload');
         }
         try {
-            $response = $this->http(60)->attach('file', $stream, basename($path))
+            $response = ProviderJournal::request('kie', 'upload_media', fn () => $this->http(60)->attach('file', $stream, basename($path))
                 ->post(config('neurogpt.providers.kie.stream_upload_url'), ['uploadPath' => 'neurogpt/music', 'fileName' => Str::uuid().'.'.pathinfo($path, PATHINFO_EXTENSION),
-                ]);
+                ]), generation: $generation);
         } finally {
             if (is_resource($stream)) {
                 fclose($stream);
@@ -269,7 +273,7 @@ class KieProvider implements AsyncProvider, Provider
             throw new RuntimeException('kie.ai returned an unsafe link');
         }
 
-        $res = Http::timeout(300)->connectTimeout(15)->get($url)->throw();
+        $res = ProviderJournal::request('kie', 'download', fn () => Http::timeout(300)->connectTimeout(15)->get($url), $model, $g)->throw();
         $bytes = $res->body();
         if ($bytes === '' || strlen($bytes) > self::MAX_RESULT_BYTES) {
             throw new RuntimeException('The result file is empty or too large');

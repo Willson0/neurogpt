@@ -34,7 +34,11 @@ export const useApp = defineStore('app', {
     musicPrices: {},
     musicDraft: null,
     musicFocus: null,
-    musicComposeRequest: 0,
+    musicComposeRequest: null,
+    musicComposer: null,
+    musicReferences: { image_urls: [], audio_urls: [], video_urls: [] },
+    musicRecoveries: {},
+    musicSendRecovery: null,
     payments: { card: false, stars: false },
     limits: { upload_mb: 10 },
     supportUrl: null,
@@ -246,6 +250,16 @@ export const useApp = defineStore('app', {
       if (err) return this.toast(err, 'cry')
       this.refFile = file
       tg.haptic('light')
+    },
+    openMusicComposer() {
+      const inStudio = this.current === 'home' && this.mode === 'song'
+      if (this.songsOff) return this.toast('Студия песен недоступна')
+      if (!inStudio) {
+        this.goTab('home')
+        this.setMode('song')
+      }
+      this.musicFocus = null
+      this.musicComposeRequest = { submit: inStudio && !!this.musicComposer?.ready }
     },
     cycleSongDuration() {
       const steps = [30, 60, 120]

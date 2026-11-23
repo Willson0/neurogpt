@@ -68,8 +68,26 @@ class MusicTest extends TestCase
         $this->as(102)->getJson('/api/music/'.$id.'/tracks/1/download')->assertNotFound();
         $this->as(102)->postJson('/api/music/'.$id.'/tracks/1/send')->assertNotFound();
         $this->as(102)->postJson('/api/music', ['operation' => 'extend', 'source_id' => $id])->assertNotFound();
+        $beforeSend = Http::recorded()->count();
         $this->as(101)->postJson('/api/music/'.$id.'/tracks/1/send')->assertOk()->assertJsonPath('sent', true);
-        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/sendDocument'));
+        [$intro, $document] = Http::recorded()->skip($beforeSend)->map(fn ($pair) => $pair[0])->values()->all();
+        $this->assertStringEndsWith('/sendMessage', $intro->url());
+        $this->assertSame("Ваше аудио готово!\n\nВариант 2 — «Ночной выезд»", $intro['text']);
+        $this->assertStringEndsWith('/sendDocument', $document->url());
+        $this->assertStringContainsString('Вариант 2 — Ночной выезд.wav', $document->body());
+
+        $beforeSend = Http::recorded()->count();
+        $this->as(101)->postJson('/api/music', [
+            'operation' => 'generate', 'prompt' => 'Ночь', 'auto_send' => true,
+        ])->assertCreated();
+        $telegram = Http::recorded()->skip($beforeSend)->map(fn ($pair) => $pair[0])
+            ->filter(fn ($request) => str_ends_with($request->url(), '/sendMessage') || str_ends_with($request->url(), '/sendDocument'))
+            ->values();
+        $this->assertCount(3, $telegram);
+        $this->assertStringEndsWith('/sendMessage', $telegram[0]->url());
+        $this->assertSame("Ваше аудио готово!\n\nВариант 1 — «Ночной выезд»\nВариант 2 — «Ночной выезд»", $telegram[0]['text']);
+        $this->assertStringContainsString('Вариант 1 — Ночной выезд.wav', $telegram[1]->body());
+        $this->assertStringContainsString('Вариант 2 — Ночной выезд.wav', $telegram[2]->body());
     }
 
     public function test_lyrics_and_graphic_cover_are_priced_separately_and_failure_refunds(): void

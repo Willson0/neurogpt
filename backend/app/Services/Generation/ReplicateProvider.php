@@ -4,6 +4,7 @@ namespace App\Services\Generation;
 
 use App\Models\AiModel;
 use App\Models\Generation;
+use App\Services\Admin\ProviderJournal;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -47,7 +48,9 @@ class ReplicateProvider implements Provider
             $input['image'] = 'data:'.$mime.';base64,'.base64_encode(file_get_contents($inputPath));
         }
 
-        $created = $this->http()->post('/predictions', ['version' => $model->provider_model, 'input' => $input])->throw()->json();
+        $created = ProviderJournal::request('replicate', 'submit',
+            fn () => $this->http()->post('/predictions', ['version' => $model->provider_model, 'input' => $input]),
+            $model, $generation)->throw()->json();
 
         $deadline = time() + (int) config('neurogpt.providers.replicate.timeout');
         $prediction = $created;
@@ -56,7 +59,8 @@ class ReplicateProvider implements Provider
                 throw new RuntimeException('Generation timed out');
             }
             sleep(3);
-            $prediction = $this->http()->get('/predictions/'.$created['id'])->throw()->json();
+            $prediction = ProviderJournal::request('replicate', 'poll',
+                fn () => $this->http()->get('/predictions/'.$created['id']), $model, $generation)->throw()->json();
         }
 
         if ($prediction['status'] !== 'succeeded') {
@@ -71,6 +75,8 @@ class ReplicateProvider implements Provider
         $path = parse_url($url, PHP_URL_PATH) ?: '';
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION)) ?: ($model->kind === 'video' ? 'mp4' : ($model->kind === 'song' ? 'mp3' : 'png'));
 
-        return new MediaResult(Http::timeout(120)->get($url)->throw()->body(), $ext);
+        $response = ProviderJournal::request('replicate', 'download', fn () => Http::timeout(120)->get($url), $model, $generation);
+
+        return new MediaResult($response->throw()->body(), $ext);
     }
 }

@@ -2,7 +2,7 @@
   <section class="adm-sec">
     <div class="filters"><button v-for="(n, k) in tabs" :key="k" type="button" class="chip" :aria-pressed="String(tab === k)" @click="tab = k; reload()">{{ n }}</button></div>
     <div v-if="tab === 'users'" class="adm-bar">
-      <label class="adm-f grow">Поиск<input v-model.trim="q" type="search" placeholder="@username, имя или Telegram id" @keyup.enter="reload" @search="reload"></label>
+      <label class="adm-f grow">Поиск<input v-model.trim="q" type="search" maxlength="64" placeholder="@username, имя или Telegram id" @keyup.enter="reload" @search="reload"></label>
       <label class="adm-f">Показать<select v-model="filter" @change="reload"><option value="">Всех</option><option value="paid">С подпиской</option><option value="blocked">Заблокированных</option></select></label>
     </div>
     <template v-else-if="tab === 'admins'">
@@ -80,11 +80,12 @@ import { section } from './shared'
 export default {
   name: 'AdminUsers',
   mixins: [section],
+  props: { initialQuery: { type: String, default: '' } },
   emits: ['content', 'payments'],
-  data: () => ({
+  data() { return {
     tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: 'users', plans: {},
-    q: '', filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: '', seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
-  }),
+    q: this.initialQuery.slice(0, 64), filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: '', seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
+  } },
   mounted() { this.reload() },
   methods: {
     reload() { this.items = []; this.next = null; this.edit = null; return this.load(1) },

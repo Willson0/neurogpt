@@ -9,9 +9,9 @@
       <button ref="cta" type="button" :class="['cta', ctaOpen ? 'open' : '']" :aria-label="ctaAria" @click="onCta">
         <span class="fab"><svg aria-hidden="true"><use href="#i-spark" /></svg></span>
         <span :class="['lbl', ctaOpen && short ? 'short' : '']">
-          <template v-if="app.current === 'home' && hasPrompt && composing">
+          <template v-if="ctaOpen && (songReady || composing && app.current === 'home' && hasPrompt)">
             <template v-if="short">Пополнить</template>
-            <template v-else>Создать<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(app.cost) }}</span></span></template>
+            <template v-else>Создать<span class="price"><svg class="token" aria-hidden="true"><use href="#i-token" /></svg><span class="num">{{ fmt(ctaCost) }}</span></span></template>
           </template>
           <template v-else-if="emptyGallery">Создать первую</template>
           <template v-else>Создать</template>
@@ -50,11 +50,13 @@ export default {
     app() { return useApp() },
     isRoot() { return ROOT.includes(this.app.current) },
     hasPrompt() { return this.app.prompt.trim().length > 0 },
-    short() { return this.app.balance < this.app.cost },
+    songReady() { return this.app.current === 'home' && this.app.mode === 'song' && !this.app.songsOff && !!this.app.musicComposer?.ready },
+    ctaCost() { return this.songReady ? this.app.musicComposer.price : this.app.cost },
+    short() { return this.app.balance < this.ctaCost },
     emptyGallery() { return this.app.current === 'gallery' && !this.app.photosets.length },
     composing() { return ['image', 'video'].includes(this.app.mode) },
-    ctaOpen() { return (this.app.current === 'home' && this.composing && this.hasPrompt) || this.emptyGallery },
-    ctaAria() { return this.ctaOpen ? 'Создать' : 'Новая генерация' },
+    ctaOpen() { return this.songReady || (this.app.current === 'home' && this.composing && this.hasPrompt) || this.emptyGallery },
+    ctaAria() { return this.app.mode === 'song' ? (this.songReady ? 'Создать песню' : 'Открыть студию песен') : (this.ctaOpen ? 'Создать' : 'Новая генерация') },
     native() { return tg.hasMainButton },
     /** What the primary/secondary action is on the current screen, or null when there is none. */
     foot() {
@@ -109,15 +111,12 @@ export default {
     },
     onCta() {
       const a = this.app
+      if (a.mode === 'song') return a.openMusicComposer()
       if (a.current === 'home' && this.ctaOpen) {
         if (this.short) { tg.haptic('warning'); return a.openSheet('need', { lack: a.cost - a.balance }) }
         return a.start()
       }
       if (this.emptyGallery) { a.goTab('home'); return }
-      if (a.current === 'home' && a.mode === 'song' && !a.songsOff) {
-        a.musicComposeRequest++
-        return
-      }
       tg.haptic('light')
       if (a.current !== 'home') a.goTab('home')
       if (!this.composing) a.setMode('image')

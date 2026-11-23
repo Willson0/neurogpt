@@ -3,6 +3,7 @@
 namespace App\Services\Generation;
 
 use App\Models\Generation;
+use App\Services\Admin\ProviderJournal;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -72,7 +73,7 @@ class KieMusic
             if (! $url) {
                 throw new RuntimeException('Seedream returned no cover');
             }
-            $image = ImageNormalizer::normalize($this->download($url, 20_000_000), 2048);
+            $image = ImageNormalizer::normalize($this->download($url, 20_000_000, $generation), 2048);
 
             return new MediaResult($image->bytes, $image->extension, ['cover' => true]);
         }
@@ -141,9 +142,9 @@ class KieMusic
         return new MediaResult('', '', ['style' => mb_substr($value, 0, 1000)]);
     }
 
-    public function audio(string $url): MediaResult
+    public function audio(string $url, Generation $generation): MediaResult
     {
-        $bytes = $this->download($url, 80_000_000);
+        $bytes = $this->download($url, 80_000_000, $generation);
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
         $ext = match ($mime) {
             'audio/mpeg' => 'mp3',
@@ -158,17 +159,17 @@ class KieMusic
         return new MediaResult($bytes, $ext);
     }
 
-    private function download(string $url, int $limit): string
+    private function download(string $url, int $limit, Generation $generation): string
     {
         if (! str_starts_with($url, 'https://')) {
             throw new RuntimeException('Invalid Kie.ai download URL');
         }
 
-        $response = Http::connectTimeout(10)->timeout(70)->withOptions([
+        $response = ProviderJournal::request('kie', 'download', fn () => Http::connectTimeout(10)->timeout(70)->withOptions([
             'stream' => true,
             'read_timeout' => 20,
             'allow_redirects' => ['protocols' => ['https'], 'max' => 3],
-        ])->get($url)->throw();
+        ])->get($url), generation: $generation)->throw();
         $stream = $response->toPsrResponse()->getBody();
         try {
             $bytes = '';

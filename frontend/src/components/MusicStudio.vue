@@ -13,7 +13,15 @@
       <button v-for="item in tabs" :key="item.id" type="button" :aria-pressed="tab === item.id" @click="selectTab(item.id)">{{ item.label }}</button>
     </nav>
 
-    <form v-if="tab === 'compose' && !editing" class="music-panel" @submit.prevent="generate">
+    <div v-if="app.musicSendRecovery" class="music-job" role="status">
+      <span><b>Заявку не удалось подтвердить</b><small>{{ app.musicSendRecovery.error || 'Можно восстановить поля и файлы.' }}</small></span>
+      <div class="music-chips">
+        <button type="button" class="pill-btn" :disabled="busy" @click="offerRestore('send', app.musicSendRecovery)">{{ restorePrompt === 'send' ? 'Заменить текущий черновик' : 'Восстановить форму' }}</button>
+        <button type="button" class="pill-btn" @click="app.musicSendRecovery = null; restorePrompt = null">Скрыть</button>
+      </div>
+    </div>
+
+    <form v-if="tab === 'compose' && !editing" ref="songForm" class="music-panel" @submit.prevent="generate">
       <div class="music-heading">
         <div><h2>Новая песня</h2><p>{{ draft.custom_mode ? 'Соберите песню из своего текста и настроек.' : 'Задайте настроение и расскажите, о чём песня.' }}</p></div>
         <select v-model="draft.model" class="music-model" aria-label="Модель Suno">
@@ -110,7 +118,7 @@
 
       <label class="music-check"><input v-model="draft.auto_send" type="checkbox"> Отправить готовые треки в Telegram</label>
       <p v-if="error" class="music-error" role="alert">{{ error }}</p>
-      <button class="music-submit" type="submit" :disabled="busy || !chosenModel">{{ busy ? 'Отправляем…' : 'Создать песню · ' + priceLabel('generate') }}</button>
+      <button class="music-submit" type="submit" :disabled="busy || !canGenerate">{{ busy ? 'Отправляем…' : 'Создать песню · ' + priceLabel('generate') }}</button>
     </form>
 
     <form v-else-if="tab === 'compose' && editing" class="music-panel" @submit.prevent="submitEdit">
@@ -209,7 +217,10 @@
       <div v-for="item in visibleJobs" :key="item.id" class="music-job">
         <span><b>{{ item.title }}</b><small>{{ statusLabel(item) }}</small></span>
         <button v-if="item.status === 'queued'" type="button" class="pill-btn" :disabled="cancelling === item.id" @click="cancel(item)">Отменить</button>
-        <button v-else-if="item.status === 'failed' || item.status === 'cancelled'" type="button" class="pill-btn" @click="dismiss(item.id)" aria-label="Скрыть уведомление">Скрыть</button>
+        <div v-else-if="item.status === 'failed' || item.status === 'cancelled'" class="music-chips">
+          <button v-if="app.musicRecoveries[item.id]" type="button" class="pill-btn" :disabled="busy" @click="offerRestore(item.id, app.musicRecoveries[item.id])">{{ restorePrompt === item.id ? 'Заменить текущий черновик' : 'Восстановить форму' }}</button>
+          <button type="button" class="pill-btn" @click="dismiss(item.id)" aria-label="Скрыть уведомление">Скрыть</button>
+        </div>
       </div>
     </div>
   </section>
@@ -255,13 +266,15 @@ const noSongSettings = ['cover', 'persona', 'wav', 'stems']
 const bars = [11, 21, 37, 23, 49, 71, 49, 83, 100, 64, 54, 76, 49, 28, 41, 22, 11]
 const tab = ref('compose')
 const studio = ref(null)
+const songForm = ref(null)
 const models = computed(() => app.models.song || [])
-if (!app.musicDraft) app.musicDraft = {
-  model: models.value.find(m => !app.isLocked(m))?.id || 'suno-v6', custom_mode: false, prompt: '', title: '', style: '',
+const blankDraft = (model = models.value.find(m => !app.isLocked(m))?.id || 'suno-v6') => ({
+  model, custom_mode: false, prompt: '', title: '', style: '',
   lyrics: '', lyricPrompt: '', instrumental: false, duration: '', vocal_gender: '', negative_tags: '',
   style_weight: '', weirdness_constraint: '', audio_weight: '', variety: '', profile_id: '',
   auto_send: false,
-}
+})
+if (!app.musicDraft) app.musicDraft = blankDraft()
 const draft = app.musicDraft
 const jobs = ref([])
 const profiles = ref([])
@@ -282,7 +295,8 @@ const editing = ref(null)
 const editForm = ref({})
 const editFile = ref(null)
 const secondEditFile = ref(null)
-const chosenFiles = reactive({ image_urls: [], audio_urls: [], video_urls: [] })
+const chosenFiles = app.musicReferences
+const restorePrompt = ref(null)
 
 function pickReferences(item, event) {
   const files = Array.from(event.target.files)
@@ -311,10 +325,22 @@ let polling = false
 const chosenModel = computed(() => models.value.find(model => model.id === draft.model && !app.isLocked(model)))
 const selectableProfiles = computed(() => profiles.value.filter(p => !draft.instrumental || p.music.profile_type === 'style_persona'))
 const sliders = computed(() => sliderSettings.filter(s => !draft.instrumental || s.id !== 'audio_weight'))
+const hasReferences = computed(() => Object.values(chosenFiles).some(files => files.length))
+const canGenerate = computed(() => {
+  if (!chosenModel.value) return false
+  const hasLyrics = !draft.instrumental && !!draft.lyrics.trim()
+  return draft.custom_mode
+    ? !!draft.title && !!(draft.style || hasLyrics || draft.negative_tags)
+    : !!(draft.prompt || draft.style || hasLyrics || hasReferences.value)
+})
+watch(() => ({
+  ready: tab.value === 'compose' && !editing.value && canGenerate.value && !busy.value,
+  price: app.musicPrices.generate ?? chosenModel.value?.price ?? 0,
+}), value => { app.musicComposer = value }, { immediate: true })
 const activeJobs = computed(() => jobs.value.filter(item => ['queued', 'processing'].includes(item.status)))
 const visibleJobs = computed(() => jobs.value.filter(item => !dismissed.value.has(item.id) && (
   ['queued', 'processing'].includes(item.status) || (['failed', 'cancelled'].includes(item.status)
-    && (tabJobs.value.includes(item.id) || Date.now() - new Date(item.finished_at).getTime() < 10 * 60_000))
+    && (app.musicRecoveries[item.id] || tabJobs.value.includes(item.id) || Date.now() - new Date(item.finished_at).getTime() < 10 * 60_000))
 )).slice(0, 8))
 const tracks = computed(() => {
   const covers = new Map()
@@ -387,6 +413,7 @@ function updateJobs(items) {
   const byId = new Map(jobs.value.map(job => [job.id, job]))
   items.forEach(job => byId.set(job.id, job))
   jobs.value = [...byId.values()].sort((a, b) => b.id - a.id)
+  for (const job of items) if (job.status === 'done') delete app.musicRecoveries[job.id]
 }
 
 async function load(page = 1) {
@@ -475,7 +502,35 @@ function completed(item) {
   }
 }
 
-function dismiss(id) { dismissed.value.add(id) }
+function dismiss(id) {
+  dismissed.value.add(id)
+  delete app.musicRecoveries[id]
+  restorePrompt.value = null
+}
+
+function offerRestore(id, snapshot) {
+  const defaults = blankDraft(draft.model)
+  const hasDraft = hasReferences.value || Object.keys(defaults).some(key => draft[key] !== defaults[key])
+  if ((editing.value || snapshot.kind === 'song' && hasDraft) && restorePrompt.value !== id) {
+    restorePrompt.value = id
+    return
+  }
+  editing.value = null
+  selectTab('compose')
+  if (snapshot.kind === 'edit') {
+    editing.value = snapshot.details
+    editForm.value = { ...snapshot.fields }
+    editFile.value = snapshot.file
+    secondEditFile.value = snapshot.secondFile
+  } else {
+    Object.assign(draft, snapshot.fields)
+    for (const item of references) chosenFiles[item.id] = [...snapshot.files[item.id]]
+  }
+  if (id === 'send') app.musicSendRecovery = null
+  else dismiss(id)
+  restorePrompt.value = null
+  tg.haptic('selection')
+}
 
 async function cancel(item) {
   cancelling.value = item.id
@@ -490,14 +545,16 @@ async function cancel(item) {
   }
 }
 
-async function submit(operation, fields, file, uploads) {
+async function submit(operation, fields, file, uploads, snapshot) {
   if (busy.value) return null
   busy.value = true
   error.value = ''
   try {
     const result = await api.createMusic({ operation, ...fields }, file, uploads)
     app.setUser(result.user)
-    if (closed) return null
+    const job = result.data[0]
+    if (snapshot && job.status !== 'done') app.musicRecoveries[job.id] = snapshot
+    if (closed) return job
     updateJobs(result.data)
     tabJobs.value.push(...result.data.map(item => item.id))
     result.data.filter(item => item.status === 'done').forEach(completed)
@@ -506,7 +563,7 @@ async function submit(operation, fields, file, uploads) {
       timer = undefined
       void poll()
     }
-    return result.data[0]
+    return job
   } catch (e) {
     if (e.status === 422) error.value = Object.values(e.body?.errors || {}).flat()[0] || 'Проверьте параметры.'
     else if (e.status === 413) error.value = 'Размер загрузки превышает лимит.'
@@ -519,7 +576,7 @@ async function submit(operation, fields, file, uploads) {
 }
 
 async function generate() {
-  if (!chosenModel.value) return
+  if (!canGenerate.value || busy.value) return
   const { model, prompt, title, style, lyrics, custom_mode, instrumental, auto_send, profile_id, negative_tags } = draft
   const fields = { model, custom_mode, instrumental, style, lyrics, profile_id: selectableProfiles.value.some(p => p.id === profile_id) ? profile_id : '', auto_send, negative_tags }
   if (custom_mode) {
@@ -530,9 +587,17 @@ async function generate() {
   } else {
     fields.prompt = prompt
   }
-  const uploads = custom_mode ? {} : Object.fromEntries(references.map(item => ['references[' + item.id + ']', chosenFiles[item.id]]))
-  if (await submit('generate', fields, null, uploads)) {
-    for (const item of references) chosenFiles[item.id] = []
+  const files = Object.fromEntries(references.map(item => [item.id, [...chosenFiles[item.id]]]))
+  const snapshot = { kind: 'song', fields: { ...draft }, files }
+  const uploads = custom_mode ? {} : Object.fromEntries(references.map(item => ['references[' + item.id + ']', files[item.id]]))
+  Object.assign(draft, blankDraft(model))
+  for (const item of references) chosenFiles[item.id] = []
+  lyricsOpen.value = false
+  const job = await submit('generate', fields, null, uploads, snapshot)
+  if (!job) {
+    app.musicSendRecovery = { ...snapshot, error: error.value }
+    error.value = ''
+  } else if (!closed) {
     selectTab('library')
   }
 }
@@ -579,6 +644,9 @@ function openEdit(details) {
 
 function closeEdit() {
   editing.value = null
+  editForm.value = {}
+  editFile.value = null
+  secondEditFile.value = null
   selectTab('library')
 }
 
@@ -587,15 +655,15 @@ async function submitEdit() {
   const form = { ...editForm.value, source_id: details.generation?.id, track: details.index }
   if (form.instrumental && profiles.value.find(p => p.id === form.profile_id)?.music.profile_type === 'voice_persona') delete form.profile_id
   if (noSongSettings.includes(details.operation)) form.model = 'suno-v6'
-  if (details.operation === 'mashup') {
-    if (!editFile.value || !secondEditFile.value) {
-      error.value = 'Выберите две аудиодорожки.'
-      return
-    }
-    if (await submit('mashup', form, null, { mashup_files: [editFile.value, secondEditFile.value] })) closeEdit()
+  const mashup = details.operation === 'mashup'
+  if (mashup && (!editFile.value || !secondEditFile.value)) {
+    error.value = 'Выберите две аудиодорожки.'
     return
   }
-  if (await submit(details.operation, form, editFile.value)) closeEdit()
+  const snapshot = { kind: 'edit', fields: { ...editForm.value }, details, file: editFile.value, secondFile: secondEditFile.value }
+  const uploads = mashup ? { mashup_files: [snapshot.file, snapshot.secondFile] } : undefined
+  const job = await submit(details.operation, form, mashup ? null : snapshot.file, uploads, snapshot)
+  if (job && !closed) closeEdit()
 }
 
 function requestPhrase() {
@@ -641,20 +709,37 @@ async function focusJob(id) {
 }
 
 watch(() => app.musicFocus, focusJob)
-watch(() => app.musicComposeRequest, async () => {
+async function handleComposeRequest() {
+  const request = app.musicComposeRequest
+  if (!request) return
+  app.musicComposeRequest = null
+  if (request.submit && songForm.value && canGenerate.value && !busy.value) {
+    songForm.value.requestSubmit()
+    return
+  }
+
+  if (busy.value) return
   editing.value = null
   selectTab('compose')
   await nextTick()
-  studio.value?.querySelector('form textarea, form input')?.focus()
-})
+  songForm.value?.querySelector('textarea, input:not([type=checkbox])')?.focus()
+}
+watch(() => app.musicComposeRequest, handleComposeRequest)
 onMounted(async () => {
-  await Promise.all([load(), loadProfiles(), focusJob(app.musicFocus)])
-  if (!closed) void poll()
+  const navigation = app.musicComposeRequest ? handleComposeRequest() : focusJob(app.musicFocus)
+  await Promise.all([load(), loadProfiles(), navigation])
+  if (closed) return
+  const missing = Object.keys(app.musicRecoveries).filter(id => !jobs.value.some(job => job.id === Number(id)))
+  const updates = await Promise.allSettled(missing.map(id => api.generation(id)))
+  if (closed) return
+  updateJobs(updates.filter(item => item.status === 'fulfilled').map(item => item.value.data))
+  void poll()
 })
 onBeforeUnmount(() => {
   closed = true
   clearTimeout(timer)
   app.musicFocus = null
+  app.musicComposer = null
 })
 </script>
 

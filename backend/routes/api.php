@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\CatalogController;
 use App\Http\Controllers\Api\Admin\ContentController;
 use App\Http\Controllers\Api\Admin\PaymentsController;
 use App\Http\Controllers\Api\Admin\PromosController;
+use App\Http\Controllers\Api\Admin\ProviderEventsController;
 use App\Http\Controllers\Api\Admin\RenewalController;
 use App\Http\Controllers\Api\Admin\SettingsController;
 use App\Http\Controllers\Api\Admin\UsersController;
@@ -64,6 +65,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
 // The admin panel. AdminOnly checks the Telegram id on the server for every route below.
 Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'throttle:api'])->prefix('admin')->group(function () {
     Route::get('stats', [UsersController::class, 'stats']);
+    Route::get('provider-events', [ProviderEventsController::class, 'index']);
 
     Route::get('settings', [SettingsController::class, 'show']);
     Route::put('settings', [SettingsController::class, 'update']);

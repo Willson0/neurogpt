@@ -4,6 +4,7 @@ namespace App\Services\Generation;
 
 use App\Models\AiModel;
 use App\Models\Generation;
+use App\Services\Admin\ProviderJournal;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -23,14 +24,16 @@ class OpenAiProvider implements Provider
 
     public function chat(AiModel $model, array $messages, ?int $timeout = null): string
     {
-        $res = $this->http($timeout)->post('/chat/completions', [
+        $res = ProviderJournal::request('openai', 'chat', fn () => $this->http($timeout)->post('/chat/completions', [
             'model' => $model->provider_model,
             'messages' => $messages,
-        ])->throw()->json();
+        ]), $model)->throw()->json();
 
         $text = $res['choices'][0]['message']['content'] ?? null;
         if (! is_string($text) || $text === '') {
-            throw new RuntimeException('Empty answer from the model');
+            $error = new RuntimeException('Empty answer from the model');
+            ProviderJournal::failure('openai', 'chat_result', $model, null, $error);
+            throw $error;
         }
 
         return $text;
@@ -52,30 +55,30 @@ class OpenAiProvider implements Provider
         if ($inputPath && config('neurogpt.providers.openai.image_edit') === 'image_url') {
             // Gateways such as HydraAI take the source picture as a data URI in a JSON field.
             $mime = mime_content_type($inputPath) ?: 'image/png';
-            $res = $this->http()->post('/images/generations', [
+            $res = ProviderJournal::request('openai', 'image_edit', fn () => $this->http()->post('/images/generations', [
                 'model' => $model->provider_model,
                 'prompt' => $prompt,
                 'size' => $size,
                 'n' => 1,
                 'response_format' => 'b64_json',
                 'image_url' => 'data:'.$mime.';base64,'.base64_encode(file_get_contents($inputPath)),
-            ])->throw()->json();
+            ]), $model, $generation)->throw()->json();
         } elseif ($inputPath) {
             // Photoset: the user's photo is the base of the edit.
-            $res = $this->http()->asMultipart()
+            $res = ProviderJournal::request('openai', 'image_edit', fn () => $this->http()->asMultipart()
                 ->attach('image', file_get_contents($inputPath), basename($inputPath))
                 ->post('/images/edits', [
                     ['name' => 'model', 'contents' => $model->provider_model],
                     ['name' => 'prompt', 'contents' => $prompt],
                     ['name' => 'size', 'contents' => $size],
-                ])->throw()->json();
+                ]), $model, $generation)->throw()->json();
         } else {
-            $res = $this->http()->post('/images/generations', [
+            $res = ProviderJournal::request('openai', 'image', fn () => $this->http()->post('/images/generations', [
                 'model' => $model->provider_model,
                 'prompt' => $prompt,
                 'size' => $size,
                 'n' => 1,
-            ])->throw()->json();
+            ]), $model, $generation)->throw()->json();
         }
 
         $item = $res['data'][0] ?? [];
@@ -100,7 +103,8 @@ class OpenAiProvider implements Provider
             if (! preg_match('#^https://#i', $url)) {
                 throw new RuntimeException('The provider returned an unsafe link');
             }
-            $bytes = Http::timeout(60)->get($url)->throw()->body();
+            $bytes = ProviderJournal::request('openai', 'download',
+                fn () => Http::timeout(60)->get($url), $model, $generation)->throw()->body();
         }
 
         if ($bytes !== null) {

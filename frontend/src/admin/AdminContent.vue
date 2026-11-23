@@ -7,11 +7,12 @@
       <button v-for="p in periods" :key="p.id" type="button" class="chip" :aria-pressed="String(period === p.id)" @click="period = p.id; p.id !== 'custom' && reload()">{{ p.name }}</button>
     </div>
     <div class="adm-bar">
-      <template v-if="period === 'custom'">
+      <template v-if="period === 'custom'" data-admin-search-context="custom">
         <label class="adm-f">С<input v-model="from" type="date" @change="reload"></label>
         <label class="adm-f">По<input v-model="to" type="date" @change="reload"></label>
       </template>
-      <label class="adm-f grow">{{ kind === 'chat' ? 'Текст сообщения' : 'Промпт содержит' }}<input v-model.trim="q" type="search" placeholder="Поиск" @keyup.enter="reload" @search="reload"></label>
+      <label class="adm-f grow" v-if="kind === 'chat'" data-admin-search-context="chat">Текст сообщения<input v-model.trim="q" type="search" placeholder="Поиск" @keyup.enter="reload" @search="reload"></label>
+      <label class="adm-f grow" v-else>Промпт содержит<input v-model.trim="q" type="search" placeholder="Поиск" @keyup.enter="reload" @search="reload"></label>
       <label class="adm-f grow">Пользователь<input v-model.trim="user" type="search" placeholder="@username или Telegram id" @keyup.enter="reload" @search="reload"></label>
       <label v-if="kind !== 'chat'" class="adm-f">Статус
         <select v-model="status" @change="reload"><option value="">Любой</option><option v-for="(n, k) in statuses" :key="k" :value="k">{{ n }}</option></select>
@@ -92,7 +93,7 @@ export default {
   name: 'AdminContent',
   components: { Sticker },
   mixins: [section],
-  props: { initialUser: { type: String, default: '' } },
+  props: { initialUser: { type: String, default: '' }, searchContext: { type: String, default: '' } },
   data() {
     return {
       kinds: [
@@ -101,7 +102,7 @@ export default {
       ],
       periods: PERIODS, statuses: STATUSES,
       params: { format: 'Формат', style: 'Стиль', negative: 'Не должно быть', duration: 'Длительность, с', option: 'Вариант' },
-      kind: '', period: 'all', from: '', to: '', q: '', user: this.initialUser, status: '',
+      kind: this.searchContext === 'chat' ? 'chat' : '', period: this.searchContext === 'custom' ? 'custom' : 'all', from: '', to: '', q: '', user: this.initialUser, status: '',
       items: [], next: null, summary: { total: 0, done: 0, tokens: 0 }, open: null, confirmId: null, seq: 0,
     }
   },

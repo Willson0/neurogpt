@@ -31,7 +31,7 @@
       <div v-for="g in groups" :key="g.name" class="adm-card glass">
         <h3>{{ g.name }}</h3>
         <div class="adm-colors">
-          <label v-for="c in g.vars" :key="c.id" :class="['adm-color', draft[scheme][c.id] ? 'set' : '']">
+          <label v-for="c in g.vars" :key="c.id" :data-admin-search-title="c.name" :class="['adm-color', draft[scheme][c.id] ? 'set' : '']">
             <input type="color" :value="draft[scheme][c.id] || defaults[c.id] || '#000000'" :aria-label="c.name" @input="set(c.id, $event.target.value)">
             <span>{{ c.name }}<small>{{ draft[scheme][c.id] || 'по умолчанию' }}</small></span>
             <button v-if="draft[scheme][c.id]" type="button" class="x" style="border:0;background:transparent;color:var(--color-muted);margin-left:auto" :aria-label="'Вернуть цвет: ' + c.name" @click.prevent="set(c.id, null)"><svg class="ic-s" aria-hidden="true"><use href="#i-redo" /></svg></button>
@@ -49,6 +49,7 @@
 </template>
 
 <script>
+import { themeGroups } from './themeGroups'
 import { adminApi } from '../services/api'
 import { theme, toHex } from '../services/theme'
 import { tg } from '../services/telegram'
@@ -68,20 +69,7 @@ export default {
       { name: 'Аметист', dark: ['#b78cff', '#9a6bff', '#c874ff', '#ff9ad6'], light: ['#7a45d6', '#9a6bff', '#c874ff', '#ff9ad6'] },
       { name: 'Роза', dark: ['#ff7aa8', '#ff5c8a', '#ff8a8f', '#ffc7ab'], light: ['#cf2f6a', '#ff5c8a', '#ff8a8f', '#ffc7ab'] },
     ],
-    groups: [
-      { name: 'Акцент и свечение', vars: [
-        { id: '--color-accent', name: 'Акцент' }, { id: '--color-accent-ink', name: 'Текст на акценте' }, { id: '--color-focus', name: 'Обводка фокуса' },
-        { id: '--plasma-1', name: 'Свечение 1' }, { id: '--plasma-2', name: 'Свечение 2' }, { id: '--plasma-3', name: 'Свечение 3' }, { id: '--on-plasma', name: 'Текст на градиенте' },
-      ] },
-      { name: 'Фон и карточки', vars: [
-        { id: '--color-paper', name: 'Фон приложения' }, { id: '--color-page', name: 'Поля вокруг' }, { id: '--color-surface', name: 'Карточки и окна' },
-        { id: '--color-surface-2', name: 'Поля и плашки' }, { id: '--color-rule', name: 'Линии' },
-      ] },
-      { name: 'Текст и кнопки', vars: [
-        { id: '--color-ink', name: 'Основной текст' }, { id: '--color-muted', name: 'Второстепенный текст' }, { id: '--color-cta', name: 'Главная кнопка' }, { id: '--color-cta-ink', name: 'Текст главной кнопки' },
-      ] },
-      { name: 'Состояния', vars: [{ id: '--gold', name: 'Золото' }, { id: '--color-success', name: 'Успех' }, { id: '--color-danger', name: 'Ошибка' }] },
-    ],
+    groups: themeGroups,
   }),
   computed: { dirty() { return JSON.stringify(this.draft) !== JSON.stringify(this.saved) } },
   mounted() {

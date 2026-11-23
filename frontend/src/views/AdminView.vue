@@ -6,22 +6,12 @@
       <button v-if="webLogin" type="button" class="adm-btn soft sm" @click="logout">Выйти</button>
     </header>
     <div class="adm-sidebar">
-      <form class="adm-search" role="search" @submit.prevent="openFirst" @keydown.esc.stop="search = ''">
-        <label class="visually-hidden" for="admin-search">Поиск в админке</label>
-        <input id="admin-search" v-model.trim="search" type="search" maxlength="128" placeholder="Поиск в админке">
-        <ul v-if="search" class="glass admin-search-results">
-          <li v-for="item in searchResults" :key="item.id + (item.target || '')">
-            <button type="button" @click="choose(item)">{{ item.name }}</button>
-          </li>
-          <li><button type="button" @click="choose({ id: 'providerEvents', query: search })">Искать в журнале API</button></li>
-          <li><button type="button" @click="choose({ id: 'users', query: search })">Искать среди пользователей</button></li>
-        </ul>
-      </form>
+      <AdminSearch :sections="sections" @select="choose" />
       <nav ref="navigation" class="filters adm-nav" v-drag-scroll aria-label="Разделы админки">
         <button v-for="s in sections" :key="s.id" type="button" class="chip" :aria-pressed="String(current === s.id)" @click="go(s.id)">{{ s.name }}</button>
       </nav>
     </div>
-    <div class="adm-body">
+    <div ref="content" class="adm-body">
       <component :is="views[current]" :key="current + contentUser + destinationKey"
         v-bind="viewProps" @content="showContent" @payments="showPayments" />
     </div>
@@ -33,6 +23,8 @@ import { markRaw } from 'vue'
 import { useApp } from '../stores/app'
 import { webLogin } from '../services/api'
 import { tg } from '../services/telegram'
+import AdminSearch from '../admin/AdminSearch.vue'
+import { matchingLabel } from '../admin/searchText'
 import AdminDashboard from '../admin/AdminDashboard.vue'
 import AdminContent from '../admin/AdminContent.vue'
 import AdminModels from '../admin/AdminModels.vue'
@@ -47,38 +39,15 @@ import AdminRenewal from '../admin/AdminRenewal.vue'
 import AdminPromos from '../admin/AdminPromos.vue'
 import AdminPayments from '../admin/AdminPayments.vue'
 
-const settings = [
-  { id: 'settings', target: 'songs', name: 'Вкладка «Песня»', terms: 'suno музыка песни песню аудио включить флаг' },
-  { id: 'settings', target: 'limits', name: 'Лимиты и таймауты', terms: 'таймаут загрузка размер фото очередь генераций ограничение' },
-  { id: 'settings', target: 'styles', name: 'Стили картинок', terms: 'стиль пресет изображения' },
-  { id: 'settings', target: 'translation', name: 'Перевод промптов видео', terms: 'английский kie промпт переводить' },
-  { id: 'settings', target: 'support', name: 'Ссылка на поддержку', terms: 'telegram помощь контакт' },
-]
-
-const keywords = {
-  dashboard: 'статистика сводка',
-  providerEvents: 'логи ошибка ошибки журнал api kie suno replicate openai hydra openrouter код задача таймаут',
-  content: 'генерации история фото видео песни аудио',
-  models: 'провайдер генерация Suno Kling цена',
-  showcase: 'фото видеосеты фотосеты пример витрина',
-  pricing: 'токены баланс бонусы цены',
-  settings: 'конфигурация',
-  payments: 'юн касса юкасса yookassa webhook вебхук звезды оплата транзакции',
-  renewal: 'повтор интервал попытки подписка продление автосписания срок',
-  promos: 'скидки процент купон промокод',
-  theme: 'оформление интерфейс тема',
-  users: 'админы telegram аккаунты баланс',
-}
-const normalize = (value) => value.toLowerCase().replaceAll('ё', 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
-
 export default {
   name: 'AdminView',
+  components: { AdminSearch },
   data: () => ({
     views: markRaw({
       dashboard: AdminDashboard, content: AdminContent, models: AdminModels, tools: AdminTools, showcase: AdminShowcase,
       pricing: AdminPricing, settings: AdminSettings, theme: AdminTheme, users: AdminUsers, payments: AdminPayments, promos: AdminPromos, renewal: AdminRenewal, providerEvents: AdminProviderEvents,
     }),
-    current: 'dashboard', contentUser: '', search: '', destination: {}, destinationKey: 0,
+    current: 'dashboard', contentUser: '', destination: {}, destinationKey: 0,
     sections: [
       { id: 'dashboard', name: 'Обзор' }, { id: 'content', name: 'Работы и промпты' }, { id: 'models', name: 'Модели' }, { id: 'tools', name: 'Инструменты' },
       { id: 'showcase', name: 'Пресеты и новости' }, { id: 'pricing', name: 'Цены и бонусы' }, { id: 'settings', name: 'Настройки' },
@@ -89,19 +58,14 @@ export default {
     app() { return useApp() },
     webLogin() { return !tg.initData && !!webLogin.get() },
     viewProps() {
-      if (['content', 'payments'].includes(this.current)) return { initialUser: this.contentUser }
-      if (this.current === 'settings') return { initialTarget: this.destination.target }
-      if (['providerEvents', 'users'].includes(this.current)) return { initialQuery: this.destination.query }
-      return {}
-    },
-    searchResults() {
-      const text = normalize(this.search)
-      if (!text) return []
-      const words = text.split(' ')
-      const candidates = [...settings, ...this.sections.map(item => ({ ...item, terms: keywords[item.id] || '' }))]
-      return candidates.filter(item => words.every(word => normalize(item.name + ' ' + item.terms).includes(word)))
-        .sort((a, b) => Number(normalize(b.name).includes(text)) - Number(normalize(a.name).includes(text)))
-        .slice(0, 7)
+      const { context, query } = this.destination
+      const params = {}
+      if (['content', 'payments'].includes(this.current)) params.initialUser = this.contentUser
+      if (['providerEvents', 'users'].includes(this.current)) params.initialQuery = query
+      if (['content', 'payments', 'users', 'models', 'showcase', 'tools'].includes(this.current)) {
+        params.searchContext = context
+      }
+      return params
     },
   },
   created() {
@@ -116,6 +80,7 @@ export default {
     this.revealActiveSection()
     document.fonts?.ready.then(() => this.revealActiveSection())
   },
+  beforeUnmount() { this.clearSearchTarget() },
   watch: {
     current() { this.$nextTick(this.revealActiveSection) },
   },
@@ -137,16 +102,53 @@ export default {
         else if (active.bottom > container.top + nav.clientHeight) nav.scrollTop += active.bottom - container.top - nav.clientHeight
       }
     },
-    openFirst() {
-      if (this.search) this.choose(this.searchResults[0] || { id: this.search.startsWith('@') ? 'users' : 'providerEvents', query: this.search })
-    },
-    choose(item) {
+    async choose(item) {
+      const existing = item.id === this.current && item.target && matchingLabel(this.$refs.content, item.target)
+      if (existing) {
+        this.clearSearchTarget()
+        this.showSearchTarget(existing)
+        return
+      }
+
       this.go(item.id)
       this.destination = item
       this.destinationKey++
-      this.search = ''
+      await this.$nextTick()
+      if (this.destination !== item && this.destination.key !== item.key) return
+      if (item.target) this.waitForSearchTarget(item.target)
+      else this.$refs.navigation?.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true })
+    },
+    waitForSearchTarget(title) {
+      const content = this.$refs.content
+      if (!content) return
+      const reveal = () => {
+        const target = matchingLabel(content, title)
+        if (!target) return false
+        this.clearSearchTarget()
+        this.showSearchTarget(target)
+        return true
+      }
+      if (reveal()) return
+      this.searchObserver = new MutationObserver(reveal)
+      this.searchObserver.observe(content, { childList: true, subtree: true, characterData: true })
+      this.searchTimer = setTimeout(() => this.clearSearchTarget(), 10000)
+    },
+    showSearchTarget(target) {
+      this.highlightedTarget = target
+      target.classList.add('adm-search-hit')
+      if (!target.hasAttribute('tabindex')) target.tabIndex = -1
+      target.focus({ preventScroll: true })
+      target.scrollIntoView({ block: 'center', inline: 'nearest' })
+    },
+    clearSearchTarget() {
+      clearTimeout(this.searchTimer)
+      this.searchObserver?.disconnect()
+      this.searchObserver = null
+      this.highlightedTarget?.classList.remove('adm-search-hit')
+      this.highlightedTarget = null
     },
     go(id, scroll = true) {
+      this.clearSearchTarget()
       this.current = id
       this.destination = {}
       this.contentUser = ''
@@ -167,15 +169,3 @@ export default {
 }
 </script>
 
-<style scoped>
-.adm-search { position: relative; z-index: 1; min-width: 0; }
-.adm-search input { width: 100%; background: var(--color-surface-2); color: var(--color-ink); border: 1px solid var(--color-rule); border-radius: var(--radius-ctl); padding: 10px 12px; font: inherit; }
-.admin-search-results {
-  position: absolute; inset: calc(100% + 5px) 0 auto; z-index: 1;
-  list-style: none; margin: 0; padding: 5px; border-radius: var(--radius-ctl);
-  background: var(--color-surface); border: 1px solid var(--color-rule);
-  max-height: min(340px, 50dvh); overflow-y: auto;
-}
-.admin-search-results button { display: block; width: 100%; padding: 9px 10px; text-align: start; border-radius: var(--radius-ctl); }
-.admin-search-results button:hover, .admin-search-results button:focus-visible { background: var(--color-surface-2); }
-</style>

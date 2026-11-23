@@ -10,9 +10,9 @@
           <span class="t"><b>{{ t.name || 'Новый инструмент' }}</b><span>{{ t.hint }}</span></span>
           <span class="end"><span v-if="!t.is_active" class="adm-pill bad">выкл</span>{{ t.cost }} ток.</span>
         </button>
-        <form v-if="edit === t" class="adm-edit" @submit.prevent="save">
+        <form v-if="edit === t" class="adm-edit" data-admin-search-context="tool" @submit.prevent="save">
           <div class="adm-grid">
-            <label v-if="isNew" class="adm-f">Id (латиницей)<input v-model.trim="f.slug" required pattern="[a-z0-9_]+" maxlength="32" placeholder="my_tool"></label>
+            <label v-if="isNew" class="adm-f" data-admin-search-context="tool-new">Id (латиницей)<input v-model.trim="f.slug" required pattern="[a-z0-9_]+" maxlength="32" placeholder="my_tool"></label>
             <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="64"></label>
             <label class="adm-f">Цена, токенов<input v-model.number="f.cost" type="number" min="0" required></label>
             <label class="adm-f">Группа<select v-model="f.group"><option value="fix">Исправить</option><option value="create">Создать</option></select></label>
@@ -66,11 +66,17 @@ import { section, DRIVERS, toPairs, fromPairs } from './shared'
 export default {
   name: 'AdminTools',
   mixins: [section],
+  props: { searchContext: { type: String, default: '' } },
   data: () => ({
     tools: [], drivers: [], driverNames: DRIVERS, edit: null, f: {}, isNew: false, confirming: false,
     icons: ['wand', 'upscale', 'eraser', 'image', 'user', 'history', 'dna', 'spark', 'heart', 'crown', 'frame', 'video', 'star', 'bolt', 'gift', 'fire', 'music', 'text'],
   }),
-  mounted() { this.load() },
+  async mounted() {
+    await this.load()
+    if (this.failed) return
+    if (this.searchContext === 'tool-new' || (this.searchContext === 'tool' && !this.tools.length)) this.add()
+    else if (this.searchContext === 'tool') this.toggle(this.tools[0])
+  },
   methods: {
     load() { return this.fetch(async () => { const r = await adminApi.list('tools'); this.tools = r.data; this.drivers = r.drivers }) },
     toggle(t) {

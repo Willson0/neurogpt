@@ -120,3 +120,12 @@
 .adm-page .glass { -webkit-backdrop-filter: none; backdrop-filter: none; }
 .adm-page .app { min-height: 100dvh; }
 .adm-page .scroll { scrollbar-gutter: stable; }
+
+.adm-body .adm-search-hit {
+  border-radius: 7px;
+  color: var(--color-ink);
+  background: color-mix(in oklab, var(--color-accent) 10%, var(--color-surface));
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 78%, var(--color-rule));
+  outline-offset: 4px;
+}
+.adm-body label.adm-search-hit { font-weight: 600; }

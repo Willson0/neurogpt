@@ -24,7 +24,7 @@
           <span class="end"><span v-if="!it.is_active" class="adm-pill bad">выкл</span><span v-if="it.is_trending" class="adm-pill hot">тренд</span></span>
         </button>
         <form v-if="edit === it" class="adm-edit" @submit.prevent="save">
-          <div v-if="tab === 'photosets'" class="adm-grid">
+          <div v-if="tab === 'photosets'" class="adm-grid" data-admin-search-context="showcase-photos">
             <label class="adm-f">Тип<select v-model="f.kind" :disabled="!!it.id"><option value="image">Фотосет</option><option value="video">Видеосет</option></select></label>
             <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="120"></label>
             <label class="adm-f">Порядок<input v-model.number="f.sort" type="number" min="0"></label>
@@ -56,7 +56,7 @@
             <label class="adm-check"><input v-model="f.is_trending" type="checkbox">В блоке «Тренды»</label>
             <label v-if="f.is_trending" class="adm-f">Подпись в трендах<input v-model.trim="f.trend_hint" maxlength="64" placeholder="Из вашего селфи"></label>
           </div>
-          <div v-else class="adm-grid">
+          <div v-else class="adm-grid" data-admin-search-context="showcase-news">
             <label class="adm-f">Заголовок<input v-model.trim="f.title" required maxlength="120"></label>
             <label class="adm-f">Подзаголовок<input v-model.trim="f.subtitle" maxlength="160"></label>
             <label class="adm-f">Стикер<select v-model="f.sticker"><option :value="null">Без стикера</option><option v-for="s in stickers" :key="s" :value="s">{{ s }}</option></select></label>
@@ -87,12 +87,19 @@ const local = (iso) => { if (!iso) return ''; const d = new Date(iso); d.setMinu
 export default {
   name: 'AdminShowcase',
   mixins: [section],
+  props: { searchContext: { type: String, default: '' } },
   data: () => ({
     tabs: { photosets: 'Фото- и видеосеты', news: 'Новости' }, tab: 'photosets', items: { photosets: [], news: [] }, edit: null, f: {}, confirming: false, gen: { id: null }, bulk: { on: false, done: 0, total: 0, stop: false },
     stickers: ['art', 'coin', 'crown', 'cry', 'fire', 'gem', 'gift', 'heart', 'hourglass', 'hundred', 'magic', 'money', 'moneybag', 'party', 'robot', 'rocket', 'sleep', 'sparkles', 'star', 'starstruck', 'thinking', 'wave'],
   }),
   computed: { missing() { return this.items.photosets.filter((p) => p.id && p.is_active && p.kind !== 'video' && !p.cover_url) } },
-  mounted() { this.load() },
+  async mounted() {
+    if (['news', 'showcase-news'].includes(this.searchContext)) this.tab = 'news'
+    await this.load()
+    if (this.failed || !this.searchContext.startsWith('showcase-')) return
+    if (this.items[this.tab].length) this.toggle(this.items[this.tab][0])
+    else this.add()
+  },
   beforeUnmount() { this.bulk.stop = true; this.gone = true },
   methods: {
     videoExample(item) { return item.kind === 'video' && /\.(mp4|webm|mov)(?:$|[?#])/i.test(item.cover_url || '') },
@@ -115,8 +122,8 @@ export default {
       const fresh = this.tab === 'photosets'
         ? { id: null, kind: 'image', name: '', description: '', prompt: '', cover_url: '', seed: Math.floor(Math.random() * 100), palette: 0, is_trending: false, trend_hint: '', sort: list.length, is_active: true }
         : { id: null, title: '', subtitle: '', sticker: 'rocket', style: 'ember', action: null, sort: list.length, is_active: true, ends_at: null }
-      list.push(fresh)
-      this.toggle(list[list.length - 1])
+      this.toggle(fresh)
+      this.items[this.tab].push(fresh)
     },
     cancel() {
       this.items[this.tab] = this.items[this.tab].filter((x) => x.id)

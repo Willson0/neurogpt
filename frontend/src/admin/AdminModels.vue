@@ -16,9 +16,9 @@
           <span class="t"><b>{{ m.name || 'Новая модель' }}<span v-if="m.badge" class="badge">{{ m.badge }}</span></b><span>{{ m.slug }}{{ m.provider_model ? ' · ' + m.provider_model : '' }}</span></span>
           <span class="end"><span v-if="!m.is_active" class="adm-pill bad">выкл</span><span v-if="m.min_plan !== 'free'" class="adm-pill hot">{{ plans[m.min_plan] }}</span>{{ m.price }} ток.</span>
         </button>
-        <form v-if="edit === m" class="adm-edit" @submit.prevent="save">
+        <form v-if="edit === m" class="adm-edit" data-admin-search-context="model" @submit.prevent="save">
           <div class="adm-grid">
-            <label v-if="!m.id" class="adm-f">Id (латиницей)<input v-model.trim="f.slug" required pattern="[a-z0-9_-]+" maxlength="32" placeholder="my-model"></label>
+            <label v-if="!m.id" class="adm-f" data-admin-search-context="model-new">Id (латиницей)<input v-model.trim="f.slug" required pattern="[a-z0-9_-]+" maxlength="32" placeholder="my-model"></label>
             <label class="adm-f">Название<input v-model.trim="f.name" required maxlength="64"></label>
             <label class="adm-f">Цена, токенов<input v-model.number="f.price" type="number" min="0" required></label>
             <label class="adm-f">Доступ<select v-model="f.min_plan"><option v-for="(n, k) in plans" :key="k" :value="k">{{ n }}</option></select></label>
@@ -35,7 +35,7 @@
               <label class="adm-f">Модель у провайдера<input v-model.trim="f.provider_model" maxlength="255" placeholder="gpt-image-1"></label>
             </div>
           </div>
-          <div v-if="m.kind === 'video'" class="adm-sub">
+          <div v-if="m.kind === 'video'" class="adm-sub" data-admin-search-context="model-video">
             <span class="ctl-label">Длительность и цена</span>
             <div v-for="(d, i) in f.durations" :key="i" class="adm-line">
               <label class="adm-f">Секунд<input v-model.number="d.sec" type="number" min="1" max="600" required></label>
@@ -75,6 +75,7 @@ import { section, DRIVERS, toPairs, fromPairs } from './shared'
 export default {
   name: 'AdminModels',
   mixins: [section],
+  props: { searchContext: { type: String, default: '' } },
   data: () => ({
     kinds: { image: 'Картинки', video: 'Видео', text: 'Текст', song: 'Песни' },
     icons: { image: 'image', video: 'video', text: 'text', song: 'music' },
@@ -88,7 +89,13 @@ export default {
     kind: 'image', models: [], edit: null, f: {}, confirming: false,
   }),
   computed: { list() { return this.models.filter((m) => m.kind === this.kind) } },
-  mounted() { this.load() },
+  async mounted() {
+    if (['video-tab', 'model-video'].includes(this.searchContext)) this.kind = 'video'
+    await this.load()
+    if (this.failed || !this.searchContext.startsWith('model')) return
+    if (this.searchContext === 'model-new' || !this.list.length) this.add()
+    else this.toggle(this.list[0])
+  },
   methods: {
     load() { return this.fetch(async () => { const r = await adminApi.list('models'); this.models = r.data; this.drivers = r.drivers }) },
     toggle(m) {
@@ -107,8 +114,8 @@ export default {
     add() {
       this.cancel()
       const fresh = { id: null, kind: this.kind, slug: '', name: '', hint: '', price: 10, badge: '', min_plan: 'free', sort: this.list.length, is_active: true, is_fast: false, driver: this.list[0]?.driver || this.drivers[0], provider_model: this.list[0]?.provider_model || '', options: this.kind === 'video' ? { durations: { 5: 1 }, formats: ['16:9', '9:16'] } : {} }
+      this.toggle(fresh)
       this.models.push(fresh)
-      this.toggle(this.models[this.models.length - 1])
     },
     cancel() {
       this.models = this.models.filter((m) => m.id)

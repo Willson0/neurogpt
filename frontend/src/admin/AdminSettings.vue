@@ -3,7 +3,7 @@
     <div v-if="loading" class="spinner-row">Загружаем…</div>
     <div v-else-if="failed" class="empty pad"><h3>Не получилось загрузить</h3><button type="button" class="pill-btn" @click="load">Повторить</button></div>
     <template v-else>
-      <form class="adm-card glass" data-admin-target="limits" @submit.prevent="save(['limits', 'upload_max_kb'], 'Лимиты сохранены')">
+      <form class="adm-card glass" @submit.prevent="save(['limits', 'upload_max_kb'], 'Лимиты сохранены')">
         <h3>Лимиты</h3>
         <div class="adm-grid wide">
           <label class="adm-f">Генераций одновременно у одного человека<input v-model.number="v.limits.active_generations" type="number" min="1" max="100" required></label>
@@ -18,9 +18,9 @@
       <form class="adm-card glass" @submit.prevent="save(['features', 'telegram.support_url', 'providers.openai.text_model', 'providers.openai.image_model', 'providers.kie.translate'], 'Сохранено')">
         <h3>Приложение</h3>
         <div class="adm-grid wide">
-          <label class="adm-check" data-admin-target="songs"><input v-model="v.features.songs" type="checkbox">Вкладка «Песня» включена</label>
-          <label class="adm-check" data-admin-target="translation"><input v-model="v['providers.kie.translate']" type="checkbox">Переводить промпты видео на английский</label>
-          <label class="adm-f" data-admin-target="support">Ссылка на поддержку<input v-model.trim="v['telegram.support_url']" type="url" placeholder="https://t.me/your_support" maxlength="255"></label>
+          <label class="adm-check"><input v-model="v.features.songs" type="checkbox">Вкладка «Песня» включена</label>
+          <label class="adm-check"><input v-model="v['providers.kie.translate']" type="checkbox">Переводить промпты видео на английский</label>
+          <label class="adm-f">Ссылка на поддержку<input v-model.trim="v['telegram.support_url']" type="url" placeholder="https://t.me/your_support" maxlength="255"></label>
           <label class="adm-f">Текстовая модель (улучшение и перевод промптов)<input v-model.trim="v['providers.openai.text_model']" required maxlength="120"></label>
           <label class="adm-f">Модель картинок по умолчанию для новых инструментов<input v-model.trim="v['providers.openai.image_model']" required maxlength="120"></label>
         </div>
@@ -28,7 +28,7 @@
         <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
       </form>
 
-      <form class="adm-card glass" data-admin-target="styles" @submit.prevent="saveStyles">
+      <form class="adm-card glass" @submit.prevent="saveStyles">
         <h3>Стили картинок</h3>
         <p class="adm-note">Текст стиля добавляется к промпту пользователя. У стиля «any» текста нет.</p>
         <div v-for="(s, i) in styles" :key="i" class="adm-line">
@@ -50,16 +50,8 @@ import { section } from './shared'
 export default {
   name: 'AdminSettings',
   mixins: [section],
-  props: { initialTarget: { type: String, default: '' } },
   data: () => ({ v: null, styles: [], uploadMb: 10 }),
-  async mounted() {
-    await this.load()
-    if (!['limits', 'songs', 'translation', 'support', 'styles'].includes(this.initialTarget)) return
-    await this.$nextTick()
-    const target = this.$el.querySelector('[data-admin-target="' + this.initialTarget + '"]')
-    target?.scrollIntoView({ block: 'center' })
-    target?.querySelector('input')?.focus({ preventScroll: true })
-  },
+  mounted() { this.load() },
   methods: {
     load() { return this.fetch(async () => { this.take((await adminApi.settings()).data) }) },
     take(v) {

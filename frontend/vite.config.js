@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { adminSearchIndex } from './build/adminSearchIndex.js'
 import { fileURLToPath } from 'node:url'
 
 // /admin is a page of its own: in development it is served from admin.html like nginx does in production
@@ -14,7 +15,7 @@ const adminPage = {
 }
 
 export default defineConfig({
-  plugins: [vue(), adminPage],
+  plugins: [adminSearchIndex(), vue(), adminPage],
   build: {
     rollupOptions: { input: {
       main: fileURLToPath(new URL('./index.html', import.meta.url)),

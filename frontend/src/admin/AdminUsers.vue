@@ -5,7 +5,7 @@
       <label class="adm-f grow">Поиск<input v-model.trim="q" type="search" maxlength="64" placeholder="@username, имя или Telegram id" @keyup.enter="reload" @search="reload"></label>
       <label class="adm-f">Показать<select v-model="filter" @change="reload"><option value="">Всех</option><option value="paid">С подпиской</option><option value="blocked">Заблокированных</option></select></label>
     </div>
-    <template v-else-if="tab === 'admins'">
+    <template v-else-if="tab === 'admins'" data-admin-search-context="admins">
       <p class="adm-note">Администраторы видят всю админку. Добавлять и убирать их может только главный администратор, его убрать нельзя.</p>
       <form v-if="canManage" class="adm-bar" @submit.prevent="addAdmin">
         <label class="adm-f grow">Кого добавить<input v-model.trim="newAdmin" required maxlength="64" placeholder="Telegram id или @username"></label>
@@ -25,7 +25,7 @@
           <span class="t"><b>{{ u.name }}<span v-if="u.is_admin" class="badge">админ</span></b><span>{{ u.username ? '@' + u.username + ' · ' : '' }}id {{ u.telegram_id }}</span></span>
           <span class="end"><span v-if="u.is_blocked" class="adm-pill bad">блок</span><span v-if="u.plan !== 'free'" class="adm-pill hot">{{ plans[u.plan] || u.plan }}</span>{{ num(u.balance) }} ток.</span>
         </button>
-        <div v-if="edit === u" class="adm-edit">
+        <div v-if="edit === u" class="adm-edit" data-admin-search-context="account">
           <dl class="adm-kv">
             <dt>В приложении с</dt><dd>{{ when(u.created_at) }}</dd>
             <dt>Готовых работ</dt><dd>{{ num(u.created) }}</dd>
@@ -80,13 +80,16 @@ import { section } from './shared'
 export default {
   name: 'AdminUsers',
   mixins: [section],
-  props: { initialQuery: { type: String, default: '' } },
+  props: { initialQuery: { type: String, default: '' }, searchContext: { type: String, default: '' } },
   emits: ['content', 'payments'],
   data() { return {
-    tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: 'users', plans: {},
+    tabs: { users: 'Пользователи', admins: 'Администраторы' }, tab: this.searchContext === 'admins' ? 'admins' : 'users', plans: {},
     q: this.initialQuery.slice(0, 64), filter: '', items: [], next: null, total: 0, edit: null, amount: 100, comment: '', plan: 'free', days: '', seq: 0, canManage: false, newAdmin: '', confirmAdmin: null,
   } },
-  mounted() { this.reload() },
+  async mounted() {
+    await this.reload()
+    if (this.searchContext === 'account' && this.items.length) this.toggle(this.items[0])
+  },
   methods: {
     reload() { this.items = []; this.next = null; this.edit = null; return this.load(1) },
     load(page) {

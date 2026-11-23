@@ -8,9 +8,9 @@
       <p v-if="!serverEnabled" class="adm-note full">Автосписания отключены в конфигурации сервера. Расписание можно подготовить заранее.</p>
       <p class="adm-note full">Активные сроки в магазине: {{ shopTerms.length ? shopTerms.join(', ') + ' дн.' : 'нет' }}. Если срока нет у нужного тарифа, попытка пропускается.</p>
       <fieldset v-for="(step, index) in form.steps" :key="index" class="adm-grid full renewal-step" :disabled="!canManage || busy">
-        <legend>{{ index === 0 ? 'Первая попытка' : 'Попытка ' + (index + 1) }}</legend>
+        <legend data-admin-search-title="Первая попытка">{{ index === 0 ? 'Первая попытка' : 'Попытка ' + (index + 1) }}</legend>
         <label class="adm-f">Дней подписки<input v-model.number="step.days" type="number" min="1" max="3660" required></label>
-        <label class="adm-f">{{ index ? 'Часов после предыдущей попытки' : 'Часов после окончания подписки' }}<input v-model.number="step.wait_hours" type="number" :min="index ? 1 : 0" max="2160" required></label>
+        <label class="adm-f" data-admin-search-title="Часов после предыдущей попытки|Часов после окончания подписки">{{ index ? 'Часов после предыдущей попытки' : 'Часов после окончания подписки' }}<input v-model.number="step.wait_hours" type="number" :min="index ? 1 : 0" max="2160" required></label>
         <small class="adm-note">{{ hoursLabel(totalHours(index)) }} после окончания, если попытки идут по расписанию</small>
         <button v-if="index > 0" class="adm-btn danger sm" type="button" @click="form.steps.splice(index, 1)">Убрать попытку</button>
       </fieldset>

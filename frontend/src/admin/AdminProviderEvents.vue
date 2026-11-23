@@ -11,7 +11,7 @@
     <div v-else-if="failed" class="empty pad"><h3>Журнал недоступен</h3><button class="pill-btn" type="button" @click="load()">Повторить</button></div>
     <p v-else-if="!items.length" class="adm-note">По выбранным условиям событий пока нет. Журнал хранится 14 дней.</p>
 
-    <details v-for="event in items" :key="event.id" class="adm-item glass provider-event">
+    <details data-admin-search-ignore v-for="event in items" :key="event.id" class="adm-item glass provider-event">
       <summary>
         <span :class="['adm-pill', event.outcome === 'error' ? 'bad' : 'ok']">{{ event.outcome === 'error' ? 'Ошибка' : 'Ответ' }}</span>
         <span class="event-title"><b>{{ providers[event.provider] }} · {{ operations[event.operation] || event.operation }}</b><small>{{ [event.model, event.feature, reasons[event.reason]].filter(Boolean).join(' · ') }}</small></span>

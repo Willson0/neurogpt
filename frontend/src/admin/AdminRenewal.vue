@@ -56,6 +56,14 @@ export default {
 </script>
 
 <style scoped>
-.renewal-step { min-width: 0; padding: 12px; border: 1px solid var(--color-rule); border-radius: var(--radius-ctl); }
+.renewal-step {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end; min-width: 0; padding: 12px;
+  border: 1px solid var(--color-rule); border-radius: var(--radius-ctl);
+}
+.renewal-step > .adm-btn { justify-self: start; }
 .renewal-step legend { padding: 0 4px; }
+@media (min-width: 580px) {
+  .renewal-step { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>

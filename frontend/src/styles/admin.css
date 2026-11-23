@@ -1,12 +1,13 @@
 /* Admin panel. Built from the app's own tokens, so it follows the theme it edits. */
 /* The hidden dock sits below the edge; "clip" keeps a focused field from scrolling the whole shell up to reach it. */
 .app { overflow: clip; }
-.adm { gap: var(--space-md); max-width: 1180px; width: 100%; margin-inline: auto; }
-.adm-head { display: flex; align-items: center; gap: var(--space-xs); min-height: 44px; }
+.view.adm { grid-template-areas: "header" "sidebar" "content"; grid-template-columns: minmax(0, 1fr); gap: var(--space-md); max-width: 1180px; width: 100%; margin-inline: auto; }
+.adm-head { grid-area: header; display: flex; align-items: center; gap: var(--space-xs); min-height: 44px; }
 .adm-head h2 { font-size: var(--text-h); flex: 1; }
 .adm-back { border: 0; width: 40px; height: 40px; border-radius: var(--radius-pill); display: grid; place-items: center; }
+.adm-sidebar { grid-area: sidebar; display: grid; gap: var(--space-xs); min-width: 0; }
 .adm-nav { padding-block: var(--space-3xs); }
-.adm-body { display: grid; gap: var(--space-md); min-width: 0; align-content: start; }
+.adm-body { grid-area: content; display: grid; gap: var(--space-md); min-width: 0; align-content: start; }
 .adm-sec { display: grid; gap: var(--space-md); min-width: 0; }
 .adm-card { border-radius: var(--radius-card); padding: var(--space-md); display: grid; gap: var(--space-sm); min-width: 0; }
 .adm-card > h3 { font-size: var(--text-body); }
@@ -16,7 +17,7 @@
 .adm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-sm); }
 .adm-grid.wide { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .adm-f { display: grid; gap: var(--space-2xs); min-width: 0; font-size: var(--text-cap); color: var(--color-muted); font-weight: 600; }
-.adm-f.full { grid-column: 1 / -1; }
+.adm-grid > .full, .adm-f.full { grid-column: 1 / -1; }
 .adm-in, .adm-f input:not([type="checkbox"]):not([type="color"]):not([type="file"]), .adm-f select, .adm-f textarea {
   width: 100%; min-height: 42px; border: 1px solid var(--color-rule); border-radius: var(--radius-ctl); background: var(--color-surface);
   color: var(--color-ink); padding: var(--space-xs) var(--space-sm); font-size: var(--text-2); font-weight: 400; outline: none; min-width: 0;
@@ -85,10 +86,19 @@
 .adm-thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: var(--color-surface-2); }
 .adm-login { display: grid; justify-items: center; gap: var(--space-sm); min-height: 48px; }
 @media (min-width: 900px) {
-  .adm { grid-template-columns: 212px minmax(0, 1fr); column-gap: var(--space-lg); padding-top: var(--space-lg); }
-  .adm-head { grid-column: 1 / -1; }
-  .adm-nav { flex-direction: column; overflow: visible; position: sticky; top: var(--space-md); align-self: start; }
-  .adm-nav .chip { justify-content: flex-start; text-align: left; min-height: 40px; background: transparent; }
+  .view.adm {
+    grid-template-areas: "header header" "sidebar content";
+    grid-template-columns: 212px minmax(0, 1fr);
+    column-gap: var(--space-lg);
+    padding-top: var(--space-lg);
+  }
+  .adm-sidebar {
+    position: sticky; top: var(--space-md); z-index: 2; align-self: start;
+    grid-template-rows: auto minmax(0, 1fr);
+    max-height: calc(100dvh - 2 * var(--space-md));
+  }
+  .adm-nav { flex-direction: column; overflow: auto; scrollbar-width: thin; cursor: default; }
+  .adm-nav .chip { justify-content: flex-start; text-align: left; min-height: 40px; flex-shrink: 0; background: transparent; }
   .adm-nav .chip[aria-pressed="true"] { background: var(--color-cta); }
   .adm-media { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
 }
@@ -109,3 +119,4 @@
    and changes nothing on screen, so glass cards are drawn as plain translucent surfaces. */
 .adm-page .glass { -webkit-backdrop-filter: none; backdrop-filter: none; }
 .adm-page .app { min-height: 100dvh; }
+.adm-page .scroll { scrollbar-gutter: stable; }

@@ -5,20 +5,22 @@
       <h2>Админка</h2>
       <button v-if="webLogin" type="button" class="adm-btn soft sm" @click="logout">Выйти</button>
     </header>
-    <form class="adm-search" role="search" @submit.prevent="openFirst" @keydown.esc.stop="search = ''">
-      <label class="visually-hidden" for="admin-search">Поиск в админке</label>
-      <input id="admin-search" v-model.trim="search" type="search" maxlength="128" placeholder="Найти раздел, настройку или запись API">
-      <ul v-if="search" class="glass admin-search-results">
-        <li v-for="item in searchResults" :key="item.id + (item.target || '')">
-          <button type="button" @click="choose(item)">{{ item.name }}</button>
-        </li>
-        <li><button type="button" @click="choose({ id: 'providerEvents', query: search })">Искать в журнале API</button></li>
-        <li><button type="button" @click="choose({ id: 'users', query: search })">Искать среди пользователей</button></li>
-      </ul>
-    </form>
-    <nav class="filters adm-nav" v-drag-scroll aria-label="Разделы админки">
-      <button v-for="s in sections" :key="s.id" type="button" class="chip" :aria-pressed="String(current === s.id)" @click="go(s.id)">{{ s.name }}</button>
-    </nav>
+    <div class="adm-sidebar">
+      <form class="adm-search" role="search" @submit.prevent="openFirst" @keydown.esc.stop="search = ''">
+        <label class="visually-hidden" for="admin-search">Поиск в админке</label>
+        <input id="admin-search" v-model.trim="search" type="search" maxlength="128" placeholder="Поиск в админке">
+        <ul v-if="search" class="glass admin-search-results">
+          <li v-for="item in searchResults" :key="item.id + (item.target || '')">
+            <button type="button" @click="choose(item)">{{ item.name }}</button>
+          </li>
+          <li><button type="button" @click="choose({ id: 'providerEvents', query: search })">Искать в журнале API</button></li>
+          <li><button type="button" @click="choose({ id: 'users', query: search })">Искать среди пользователей</button></li>
+        </ul>
+      </form>
+      <nav ref="navigation" class="filters adm-nav" v-drag-scroll aria-label="Разделы админки">
+        <button v-for="s in sections" :key="s.id" type="button" class="chip" :aria-pressed="String(current === s.id)" @click="go(s.id)">{{ s.name }}</button>
+      </nav>
+    </div>
     <div class="adm-body">
       <component :is="views[current]" :key="current + contentUser + destinationKey"
         v-bind="viewProps" @content="showContent" @payments="showPayments" />
@@ -110,7 +112,31 @@ export default {
     const pick = [asked, saved].find((id) => this.sections.some((s) => s.id === id))
     if (pick) this.go(pick, false)
   },
+  mounted() {
+    this.revealActiveSection()
+    document.fonts?.ready.then(() => this.revealActiveSection())
+  },
+  watch: {
+    current() { this.$nextTick(this.revealActiveSection) },
+  },
   methods: {
+    revealActiveSection() {
+      const nav = this.$refs.navigation
+      const button = nav?.querySelector('[aria-pressed="true"]')
+      if (!button) return
+
+      const container = nav.getBoundingClientRect()
+      const active = button.getBoundingClientRect()
+      if (nav.scrollWidth > nav.clientWidth) {
+        const right = container.left + nav.clientWidth
+        if (active.left < container.left) nav.scrollLeft += active.left - container.left
+        else if (active.right > right) nav.scrollLeft += active.right - right
+      }
+      if (nav.scrollHeight > nav.clientHeight) {
+        if (active.top < container.top) nav.scrollTop += active.top - container.top
+        else if (active.bottom > container.top + nav.clientHeight) nav.scrollTop += active.bottom - container.top - nav.clientHeight
+      }
+    },
     openFirst() {
       if (this.search) this.choose(this.searchResults[0] || { id: this.search.startsWith('@') ? 'users' : 'providerEvents', query: this.search })
     },
@@ -142,9 +168,14 @@ export default {
 </script>
 
 <style scoped>
-.adm-search { position: relative; margin: 0 0 8px; }
+.adm-search { position: relative; z-index: 1; min-width: 0; }
 .adm-search input { width: 100%; background: var(--color-surface-2); color: var(--color-ink); border: 1px solid var(--color-rule); border-radius: var(--radius-ctl); padding: 10px 12px; font: inherit; }
-.admin-search-results { list-style: none; margin: 5px 0 0; padding: 5px; border-radius: var(--radius-ctl); }
+.admin-search-results {
+  position: absolute; inset: calc(100% + 5px) 0 auto; z-index: 1;
+  list-style: none; margin: 0; padding: 5px; border-radius: var(--radius-ctl);
+  background: var(--color-surface); border: 1px solid var(--color-rule);
+  max-height: min(340px, 50dvh); overflow-y: auto;
+}
 .admin-search-results button { display: block; width: 100%; padding: 9px 10px; text-align: start; border-radius: var(--radius-ctl); }
 .admin-search-results button:hover, .admin-search-results button:focus-visible { background: var(--color-surface-2); }
 </style>

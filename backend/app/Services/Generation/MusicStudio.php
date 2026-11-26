@@ -150,8 +150,7 @@ class MusicStudio
 
             case 'lyrics':
                 $input['prompt'] = $this->field($data, 'prompt', 'Опишите тему песни');
-                $this->require(mb_strlen($input['prompt']) <= 200, 'prompt', 'Описание текста должно быть не длиннее 200 символов');
-                break;
+                    break;
 
             case 'boost_style':
                 $input['content'] = $this->field($data, 'style', 'Опишите музыкальный стиль');
@@ -210,6 +209,14 @@ class MusicStudio
                 $input = $description + $advanced;
                 if ($operation === 'cover_audio') {
                     $input['instrumental'] = $instrumental;
+                    if (isset($data['source_id'])) {
+                        $this->require(! $file, 'file', 'Выберите один источник для кавера');
+                        [$source, $track] = $this->track($user, $data['source_id'], (int) ($data['track'] ?? 0));
+                        $this->require(! empty($track['id']) && $source->provider_task_id, 'source_id', 'Этот трек недоступен для кавера');
+                        $fileField = null;
+                        $parentId = $source->id;
+                        $input += ['task_id' => $source->provider_task_id, 'audio_id' => $track['id']];
+                    }
                 } else {
                     $input['title'] = $this->field($data, 'title', 'Укажите название песни');
                     $input['negative_tags'] = $this->field($data, 'negative_tags', 'Укажите, чего избегать');

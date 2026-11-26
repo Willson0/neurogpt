@@ -41,7 +41,7 @@ import { when } from './shared'
 const props = defineProps({ initialQuery: { type: String, default: '' } })
 const providers = { kie: 'Kie.ai', openai: 'OpenAI-совместимый API', replicate: 'Replicate' }
 const operations = { chat: 'Текстовый запрос', chat_result: 'Текстовый результат', image: 'Генерация изображения', image_edit: 'Обработка изображения', submit: 'Создание задачи', poll: 'Проверка задачи', upload_image: 'Загрузка фото', upload_media: 'Загрузка референса', download: 'Получение результата', generation_failed: 'Ошибка генерации' }
-const reasons = { authorization: 'Проверьте ключ и доступ к модели', credits: 'Недостаточно кредитов у провайдера', rate_limit: 'Превышен лимит запросов', moderation: 'Запрос отклонён модерацией', size: 'Файл или запрос слишком большой', not_found: 'Задача или ресурс не найдены', timeout: 'Провайдер не ответил вовремя', connection: 'Ошибка соединения с провайдером', input: 'Провайдер отклонил параметры', result: 'Пустой или некорректный результат', upstream: 'Ошибка на стороне провайдера', unknown: 'Причина не определена' }
+const reasons = { copyright: 'Ограничение по авторским правам', authorization: 'Проверьте ключ и доступ к модели', credits: 'Недостаточно кредитов у провайдера', rate_limit: 'Превышен лимит запросов', moderation: 'Запрос отклонён модерацией', size: 'Файл или запрос слишком большой', not_found: 'Задача или ресурс не найдены', timeout: 'Провайдер не ответил вовремя', connection: 'Ошибка соединения с провайдером', input: 'Провайдер отклонил параметры', result: 'Пустой или некорректный результат', upstream: 'Ошибка на стороне провайдера', unknown: 'Причина не определена' }
 const query = ref(props.initialQuery)
 const provider = ref('')
 const outcome = ref(props.initialQuery ? '' : 'error')

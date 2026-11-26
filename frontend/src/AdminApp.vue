@@ -12,6 +12,7 @@
       <div v-if="state === 'login' && browser" class="adm-login">
         <p>Войдите через Telegram под аккаунтом администратора.</p>
         <div ref="login" />
+        <a v-if="telegramLink" class="pill-btn" :href="telegramLink">Открыть в Telegram</a>
         <p v-if="loginError" class="err-text">{{ loginError }}</p>
       </div>
       <p v-else-if="state === 'login'">Откройте приложение из Telegram.</p>
@@ -37,7 +38,7 @@ import AdminView from './views/AdminView.vue'
 export default {
   name: 'AdminApp',
   components: { Toast, Sticker, AdminView },
-  data: () => ({ state: 'loading', loginError: '' }),
+  data: () => ({ state: 'loading', loginError: '', telegramLink: '' }),
   computed: {
     app() { return useApp() },
     browser() { return !tg.initData },
@@ -52,6 +53,11 @@ export default {
     async boot() {
       this.state = 'loading'
       try {
+        if (this.browser && webLogin.get()) {
+          try { await webLogin.start() } catch (e) {
+            if (e.status === 401 || e.status === 403) webLogin.clear()
+          }
+        }
         const [me, cfg] = await Promise.all([api.me(), api.publicConfig().catch(() => null)])
         if (cfg) theme.apply(cfg.theme)
         this.app.setUser(me)
@@ -69,13 +75,24 @@ export default {
       const box = this.$refs.login
       if (!box || box.childElementCount) return
       if (webLogin.get()) { webLogin.clear(); this.loginError = 'Вход устарел или у этого аккаунта нет доступа. Войдите ещё раз.' }
-      let bot = ''
-      try { bot = (await api.publicConfig()).bot_username } catch { /* shown below */ }
+      const config = await api.publicConfig().catch(() => null)
+      const bot = config?.bot_username
       if (!bot) { this.loginError = this.loginError || 'Вход через браузер не настроен: на сервере не задано имя бота.'; return }
-      window.ngTelegramLogin = (user) => { webLogin.set(user); this.loginError = ''; this.boot() }
+      const appPath = config.mini_app_short_name ? '/' + encodeURIComponent(config.mini_app_short_name) : ''
+      this.telegramLink = 'https://t.me/' + encodeURIComponent(bot) + appPath + '?startapp=admin'
+      window.ngTelegramLogin = async (user) => {
+        try {
+          await webLogin.start(user)
+          this.loginError = ''
+          this.boot()
+        } catch {
+          this.loginError = 'Не удалось войти. Проверьте доступ и попробуйте ещё раз.'
+        }
+      }
       const s = document.createElement('script')
       s.async = true
-      s.src = 'https://telegram.org/js/telegram-widget.js?22'
+      s.src = '/vendor/telegram-widget.js'
+      s.onerror = () => { this.loginError = 'Виджет входа не загрузился. Откройте приложение в Telegram.' }
       s.dataset.telegramLogin = bot
       s.dataset.size = 'large'
       s.dataset.radius = '14'

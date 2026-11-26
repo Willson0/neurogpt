@@ -137,9 +137,15 @@ class ProviderJournal
         return $value;
     }
 
+    public static function isCopyright(string $message): bool
+    {
+        return (bool) preg_match('/copyright|copy.right|rights.holder|intellectual property|dmca|protected (song|audio|track)|matches (an? )?existing (work|song|track)|авторск/ui', $message);
+    }
+
     private static function reason(?int $code, string $message): string
     {
         return match (true) {
+            self::isCopyright($message) => 'copyright',
             $code === 402 || preg_match('/credits|insufficient.quota|billing|payment.required/i', $message) => 'credits',
             in_array($code, [401, 403], true) || preg_match('/api.key|api.token|unauthori[sz]ed|authentication/i', $message) => 'authorization',
             $code === 429 || preg_match('/rate.limit|too.many.requests/i', $message) => 'rate_limit',

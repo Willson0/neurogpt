@@ -56,7 +56,7 @@ export default {
   }),
   computed: {
     app() { return useApp() },
-    webLogin() { return !tg.initData && !!webLogin.get() },
+    webLogin() { return !tg.initData },
     viewProps() {
       const { context, query } = this.destination
       const params = {}
@@ -164,7 +164,10 @@ export default {
       if (location.pathname !== '/') history.replaceState(null, '', '/')
       this.app.goTab('home')
     },
-    logout() { webLogin.clear(); location.reload() },
+    async logout() {
+      try { await webLogin.end(); location.reload() }
+      catch { this.app.toast('Не удалось выйти. Попробуйте ещё раз.') }
+    },
   },
 }
 </script>

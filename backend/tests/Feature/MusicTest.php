@@ -99,22 +99,20 @@ class MusicTest extends TestCase
         ]);
         $file = UploadedFile::fake()->image('cover.png');
         $image = file_get_contents($file->getPathname());
+        config([
+            'neurogpt.providers.openai.api_key' => 'hydra-test',
+            'neurogpt.providers.openai.base_url' => 'https://api.hydraai.ru/v1',
+            'neurogpt.providers.openai.image_size' => 'ratio',
+        ]);
         Http::fake([
-            'api.kie.ai/api/v1/jobs/createTask' => fn ($request) => Http::response(['code' => 200, 'data' => ['taskId' => $request['model'] === 'ai-music-api/generate-lyrics' ? 'lyrics' : 'cover']]),
-            'api.kie.ai/api/v1/jobs/recordInfo?taskId=lyrics' => Http::response(['code' => 200, 'data' => [
-                'state' => 'success', 'resultJson' => json_encode(['resultObject' => ['lyricsData' => [
-                    ['title' => 'Первый', 'text' => 'Куплет', 'status' => 'SUCCESS'],
-                    ['title' => 'Второй', 'text' => 'Припев', 'status' => 'SUCCESS'],
-                ]]]),
-            ]]),
-            'api.kie.ai/api/v1/jobs/recordInfo?taskId=cover' => Http::sequence()
-                ->push(['code' => 200, 'data' => ['state' => 'success', 'resultJson' => json_encode(['resultUrls' => ['https://media.example.test/art.png']])]])
-                ->push(['code' => 200, 'data' => ['state' => 'fail', 'failMsg' => 'Unavailable']]),
-            'media.example.test/art.png' => Http::response($image),
+            'api.hydraai.ru/v1/chat/completions' => Http::response(['choices' => [['message' => ['content' => "[Verse]\nКуплет"]]]]),
+            'api.hydraai.ru/v1/images/generations' => Http::sequence()
+                ->push(['data' => [['b64_json' => base64_encode($image)]]])
+                ->push(['error' => ['message' => 'Unavailable']], 503),
         ]);
         $lyric = $this->as(101)->postJson('/api/music', ['operation' => 'lyrics', 'prompt' => 'Песня о море'])
             ->assertCreated()->json('data.0.id');
-        $this->as(101)->getJson('/api/generations/'.$lyric)->assertJsonCount(2, 'data.music.lyrics');
+        $this->as(101)->getJson('/api/generations/'.$lyric)->assertJsonPath('data.music.lyrics.0.text', "[Verse]\nКуплет");
         $cover = $this->as(101)->postJson('/api/music', ['operation' => 'cover', 'source_id' => $song->id, 'prompt' => 'Море ночью'])
             ->assertCreated()->json('data.0.id');
         $this->as(101)->getJson('/api/generations/'.$cover)->assertJsonPath('data.music.parent_id', $song->id);
@@ -123,7 +121,29 @@ class MusicTest extends TestCase
             ->assertCreated()->json('data.0.id');
         $this->assertSame('failed', Generation::findOrFail($failed)->status);
         $this->assertSame(80, $user->refresh()->balance);
-        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/createTask') && $r['model'] === 'seedream/4.5-text-to-image' && $r['input']['aspect_ratio'] === '1:1');
+        Http::assertSent(fn ($r) => $r->url() === 'https://api.hydraai.ru/v1/images/generations' && $r['size'] === '1:1');
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'api.kie.ai'));
+    }
+
+    public function test_cover_from_library_uses_owned_provider_ids_and_reports_copyright(): void
+    {
+        $user = $this->user(101, 100);
+        $song = Generation::create([
+            'user_id' => $user->id, 'kind' => 'song', 'status' => 'done', 'cost' => 30,
+            'provider_task_id' => 'source-task',
+            'music_result' => ['tracks' => [['path' => 'generations/source.wav', 'id' => 'source-track']]],
+        ]);
+        Http::fake([
+            'api.kie.ai/api/v1/jobs/createTask' => Http::response(['code' => 422, 'msg' => 'Copyright protected track']),
+        ]);
+        $payload = ['operation' => 'cover_audio', 'source_id' => $song->id, 'style' => 'Synthwave'];
+        $this->as(102)->postJson('/api/music', $payload)->assertNotFound();
+        $id = $this->as(101)->postJson('/api/music', $payload)->assertCreated()->json('data.0.id');
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/createTask') && $request['model'] === 'ai-music-api/upload-and-cover-audio'
+            && $request['input']['task_id'] === 'source-task' && $request['input']['audio_id'] === 'source-track'
+            && ! isset($request['input']['upload_url']));
+        $this->as(101)->getJson('/api/generations/'.$id)->assertJsonPath('data.error', 'copyright');
+        $this->assertSame(100, $user->refresh()->balance);
     }
 
     public function test_custom_voice_becomes_a_reusable_profile_after_phrase_verification(): void

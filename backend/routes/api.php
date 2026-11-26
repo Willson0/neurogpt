@@ -28,6 +28,7 @@ Route::get('music/download/{generation}/{track}', [\App\Http\Controllers\Api\Mus
 // What the app needs before sign-in: the bot for the browser login button and the color theme.
 Route::get('config', fn () => response()->json([
     'bot_username' => config('neurogpt.telegram.bot_username'),
+    'mini_app_short_name' => config('neurogpt.telegram.webapp_short_name'),
     'theme' => config('neurogpt.theme'),
 ]))->middleware('throttle:guard');
 
@@ -64,6 +65,12 @@ Route::middleware(['throttle:guard', TelegramAuth::class, 'throttle:api'])->grou
 
 // The admin panel. AdminOnly checks the Telegram id on the server for every route below.
 Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'throttle:api'])->prefix('admin')->group(function () {
+    Route::post('session', [\App\Http\Controllers\Api\Admin\SessionController::class, 'store']);
+    Route::delete('session', [\App\Http\Controllers\Api\Admin\SessionController::class, 'destroy']);
+    Route::get('shop', [\App\Http\Controllers\Api\Admin\ShopController::class, 'index']);
+    Route::patch('shop/{offer}', [\App\Http\Controllers\Api\Admin\ShopController::class, 'update'])->whereNumber('offer');
+    Route::get('provider-balance/{provider}', \App\Http\Controllers\Api\Admin\ProviderBalanceController::class)->whereIn('provider', ['hydra', 'kie']);
+
     Route::get('stats', [UsersController::class, 'stats']);
     Route::get('provider-events', [ProviderEventsController::class, 'index']);
 
@@ -95,6 +102,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
     Route::post('upload', [CatalogController::class, 'upload']);
 
     Route::get('generations', [ContentController::class, 'generations']);
+    Route::get('generations/{generation}', [ContentController::class, 'showGeneration'])->whereNumber('generation');
     Route::get('generations/{generation}/input', [ContentController::class, 'input'])->whereNumber('generation');
     Route::delete('generations/{generation}', [ContentController::class, 'destroyGeneration'])->whereNumber('generation');
     Route::get('messages', [ContentController::class, 'messages']);
@@ -116,6 +124,7 @@ Route::middleware(['throttle:guard', TelegramAuth::class, AdminOnly::class, 'thr
 
     // Reading is open to every admin; adding and removing is checked inside for the main admin.
     Route::get('admins', [UsersController::class, 'admins']);
+    Route::patch('admins/{telegramId}/generation-alerts', [UsersController::class, 'generationAlerts'])->whereNumber('telegramId');
     Route::post('admins', [UsersController::class, 'addAdmin']);
     Route::delete('admins/{telegramId}', [UsersController::class, 'removeAdmin'])->whereNumber('telegramId');
 });

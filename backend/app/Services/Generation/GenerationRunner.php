@@ -4,6 +4,7 @@ namespace App\Services\Generation;
 
 use App\Exceptions\ContentFiltered;
 use App\Exceptions\ProviderUnavailable;
+use App\Jobs\NotifyGenerationFailure;
 use App\Jobs\PollGeneration;
 use App\Models\Generation;
 use App\Models\User;
@@ -53,7 +54,14 @@ class GenerationRunner
             if (! isset($g->params['music'])) {
                 $g->finalPrompt = $this->prompts->for($g);
             }
+            $operation = $g->params['music']['operation'] ?? null;
             $provider = $this->providers->for($g->model);
+            if (in_array($operation, ['lyrics', 'cover'], true)
+                && (! $provider instanceof FakeProvider || config('neurogpt.providers.openai.api_key'))) {
+                $this->complete($g, app(OpenAiProvider::class)->music($g, $operation));
+
+                return;
+            }
             $inputPath = $g->input_path ? Storage::disk('local')->path($g->input_path) : null;
 
             if ($provider instanceof AsyncProvider) {
@@ -269,19 +277,35 @@ class GenerationRunner
             'error' => Bot::scrub($e->getMessage()),
         ]);
 
-        $refunded = DB::transaction(function () use ($g, $filtered, $unavailable) {
+        $error = match (true) {
+            $g->kind === 'song' && ProviderJournal::isCopyright($e->getMessage()) => 'copyright',
+            $filtered => 'content_filtered',
+            $unavailable => 'unavailable',
+            $g->kind === 'song' && preg_match('/time.?out|timed out|no result in time/i', $e->getMessage()) => 'timeout',
+            $g->kind === 'song' && $e instanceof \Illuminate\Http\Client\ConnectionException => 'connection',
+            default => 'failed',
+        };
+        $refundReason = match ($error) {
+            'copyright' => 'Ограничение по авторским правам',
+            'content_filtered' => 'Запрос не прошёл фильтр',
+            'unavailable' => 'Генерация пока недоступна',
+            'timeout' => 'Истекло время ожидания',
+            'connection' => 'Ошибка связи с провайдером',
+            default => 'Модель перегружена',
+        };
+        $refunded = DB::transaction(function () use ($g, $error, $refundReason) {
             $locked = Generation::query()->whereKey($g->id)->lockForUpdate()->first();
             if (! $locked || ! $locked->isActive()) {
                 return false;
             }
             $locked->update([
                 'status' => 'failed', 'finished_at' => now(),
-                'error' => $filtered ? 'content_filtered' : ($unavailable ? 'unavailable' : 'failed'),
+                'error' => $error,
             ]);
             if ($locked->cost > 0) {
                 $this->wallet->refund(
                     User::findOrFail($locked->user_id), $locked->cost, 'Возврат',
-                    ['generation_id' => $locked->id], $filtered ? 'Запрос не прошёл фильтр' : ($unavailable ? 'Генерация пока недоступна' : 'Модель перегружена'),
+                    ['generation_id' => $locked->id], $refundReason,
                     Wallet::spendOf($locked->id),
                 );
             }
@@ -293,6 +317,11 @@ class GenerationRunner
             $this->forgetInput($g);
             if (! $e instanceof RequestException && ! $e instanceof \Illuminate\Http\Client\ConnectionException) {
                 ProviderJournal::failure((string) $g->model?->driver, 'generation_failed', $g->model, $g, $e);
+            }
+            try {
+                NotifyGenerationFailure::dispatch($g->id, $error)->afterCommit();
+            } catch (Throwable $notificationError) {
+                Log::warning('Could not queue generation alert', ['id' => $g->id, 'exception' => $notificationError::class]);
             }
         }
     }

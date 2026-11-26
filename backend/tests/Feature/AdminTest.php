@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\NotifyGenerationFailure;
 use App\Models\AiModel;
 use App\Models\Bot\ShopItem;
 use App\Models\Chat;
@@ -10,8 +11,11 @@ use App\Models\News;
 use App\Models\Photoset;
 use App\Models\User;
 use App\Services\Admin\Settings;
+use App\Services\Generation\GenerationRunner;
+use App\Services\Telegram\Bot;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -39,7 +43,7 @@ class AdminTest extends TestCase
         $this->assertGreaterThan(25, $routes->count());
 
         foreach ($routes as $route) {
-            $uri = '/'.preg_replace('/\{[A-Za-z]+\}/', '1', str_replace('{type}', 'percent', $route->uri()));
+            $uri = '/'.preg_replace('/\{[A-Za-z]+\}/', '1', strtr($route->uri(), ['{type}' => 'percent', '{provider}' => 'hydra']));
             $method = $route->methods()[0];
             $this->as(1)->json($method, $uri)->assertStatus(403);
             $this->flushHeaders()->json($method, $uri, [], ['Accept' => 'application/json'])->assertStatus(401);
@@ -48,6 +52,49 @@ class AdminTest extends TestCase
         $this->as(1)->getJson('/api/me')->assertJsonPath('is_admin', false);
         $this->admin()->getJson('/api/me')->assertJsonPath('is_admin', true);
         $this->admin()->getJson('/api/admin/stats')->assertOk()->assertJsonPath('users.total', 2);
+    }
+
+    public function test_provider_balances_return_only_the_amount_and_unit(): void
+    {
+        config([
+            'neurogpt.providers.openai.base_url' => 'https://api.hydraai.ru/v1',
+            'neurogpt.providers.openai.api_key' => 'hydra-test',
+            'neurogpt.providers.kie.api_key' => 'kie-test',
+        ]);
+        Http::fake([
+            'api.hydraai.ru/v1/users/profile' => Http::response(['balance' => 125.75, 'id' => 'private']),
+            'api.kie.ai/api/v1/chat/credit' => Http::response(['code' => 200, 'data' => 15.5]),
+        ]);
+
+        $this->admin()->getJson('/api/admin/provider-balance/hydra')->assertOk()->assertExactJson(['amount' => 125.75, 'unit' => 'RUB']);
+        $this->admin()->getJson('/api/admin/provider-balance/kie')->assertOk()->assertExactJson(['amount' => 15.5, 'unit' => 'credits']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/users/profile') && $request->hasHeader('Authorization', 'Bearer hydra-test'));
+    }
+
+    public function test_admin_alert_is_sent_once_for_an_opted_in_recipient(): void
+    {
+        $recipient = 42;
+        DB::table('admins')->insert(['id' => $recipient, 'username' => 'reviewer']);
+        $this->as($recipient)->patchJson('/api/admin/admins/'.self::ADMIN.'/generation-alerts', ['enabled' => true])->assertForbidden();
+        $this->as($recipient)->patchJson("/api/admin/admins/$recipient/generation-alerts", ['enabled' => true])->assertOk();
+
+        $user = $this->user(101);
+        $generation = Generation::create(['user_id' => $user->id, 'kind' => 'song', 'status' => 'processing', 'cost' => 0]);
+        Bus::fake([NotifyGenerationFailure::class]);
+        $runner = app(GenerationRunner::class);
+        $error = new \RuntimeException('Uploaded audio matches existing work of art');
+        $runner->fail($generation, $error);
+        $runner->fail($generation, $error);
+        Bus::assertDispatchedTimes(NotifyGenerationFailure::class, 1);
+        $this->admin()->getJson('/api/admin/generations/'.$generation->id)->assertOk()->assertJsonPath('data.error', 'copyright');
+
+        $alert = new NotifyGenerationFailure($generation->id, 'copyright');
+        $alert->handle(app(Bot::class));
+        $messages = Http::recorded(fn ($request) => str_ends_with($request->url(), '/sendMessage'));
+        $this->assertCount(1, $messages);
+        [$message] = $messages->first();
+        $this->assertSame($recipient, $message['chat_id']);
+        $this->assertStringContainsString('Ограничение по авторским правам', $message['text']);
     }
 
     public function test_model_is_edited_created_deleted_and_survives_the_seeder(): void

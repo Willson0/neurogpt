@@ -18,6 +18,7 @@
     <details class="music-more">
       <summary>Обработка трека</summary>
       <div class="music-track-actions">
+        <button v-if="track.editable && !['wav', 'stems'].includes(generation.music?.operation)" type="button" class="pill-btn" @click="edit('cover_audio')">Кавер на этот трек</button>
         <button v-if="track.editable" type="button" class="pill-btn" @click="edit('extend')">Продолжить</button>
         <button v-if="track.editable && (!track.duration || track.duration >= 20)" type="button" class="pill-btn" @click="edit('replace')">Заменить фрагмент</button>
         <button v-if="track.editable && ['generate', 'extend'].includes(generation.music?.operation)" type="button" class="pill-btn" @click="edit('persona')">Сохранить стиль</button>

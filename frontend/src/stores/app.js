@@ -33,6 +33,7 @@ export const useApp = defineStore('app', {
     features: { songs: false },
     musicPrices: {},
     musicDraft: null,
+    musicLink: null,
     musicFocus: null,
     musicComposeRequest: null,
     musicComposer: null,

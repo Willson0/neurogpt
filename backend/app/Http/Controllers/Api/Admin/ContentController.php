@@ -53,6 +53,16 @@ class ContentController extends Controller
         ]);
     }
 
+    public function showGeneration(Generation $generation)
+    {
+        $generation->load(['user', 'model', 'photoset']);
+        $events = \Illuminate\Support\Facades\DB::table('wa_provider_events')
+            ->where('generation_id', $generation->id)->where('outcome', 'error')->latest('id')->limit(30)
+            ->get(['provider', 'operation', 'reason', 'http_status', 'provider_code', 'request_id', 'task_id', 'created_at']);
+
+        return response()->json(['data' => $this->generation($generation) + ['logs' => $events]]);
+    }
+
     /**
      * The photo a user attached. It is private, so it is streamed here instead of living in /storage.
      * Uploads are removed once the job finishes, so this answers only while a generation is waiting or running.
@@ -147,6 +157,16 @@ class ContentController extends Controller
             'user' => $this->user($g->user),
             'result_url' => $g->result_path ? Storage::disk('public')->url($g->result_path) : null,
             'result_text' => $g->result_text,
+            'music' => isset($g->params['music']) ? [
+                'title' => $g->params['music']['name'] ?? null,
+                'tracks' => collect($g->music_result['tracks'] ?? [])->filter(fn ($track) => ! empty($track['path']))
+                    ->values()->map(fn ($track) => [
+                        'title' => $track['title'] ?? null,
+                        'url' => Storage::disk('public')->url($track['path']),
+                        'duration' => $track['duration'] ?? null,
+                    ]),
+                'lyrics' => $g->music_result['lyrics'] ?? [],
+            ] : null,
             'has_input' => $g->input_path && Storage::disk('local')->fileExists($g->input_path),
             'error' => $g->error, 'rating' => $g->rating, 'is_favorite' => $g->is_favorite,
             'created_at' => $g->created_at?->toIso8601String(),

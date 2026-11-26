@@ -3,6 +3,9 @@
 namespace App\Http\Middleware;
 
 use App\Exceptions\InvalidInitData;
+use App\Http\Controllers\Api\Admin\SessionController;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
 use App\Services\Telegram\UserResolver;
 use Closure;
 use Illuminate\Http\Request;
@@ -20,6 +23,15 @@ class TelegramAuth
     public function handle(Request $request, Closure $next): Response
     {
         $header = (string) $request->header('Authorization', '');
+        if ($header === '' && $request->header('X-NeuroGPT-Session') === '1'
+            && ! in_array($request->header('Sec-Fetch-Site'), ['cross-site', 'same-site'], true)
+            && ($cookie = $request->cookie(SessionController::COOKIE))) {
+            try {
+                $header = 'tgl '.Crypt::decryptString($cookie);
+            } catch (DecryptException) {
+                return response()->json(['message' => 'Invalid session'], 401);
+            }
+        }
         if (! str_starts_with($header, 'tma ') && ! str_starts_with($header, 'tgl ')) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }

@@ -14,7 +14,7 @@ import { openAdmin } from '../stores/app'
  * <link> is "<screen>" or "<screen>-<argument>", only A-Z a-z 0-9 _ - (what Telegram allows in startapp, up to 64 chars):
  *   home | gallery | profile | history | invite | more
  *   image | video | song | tools               a tab of the composer on the home screen
- *   image-<model> | video-<model>               that tab with the model chosen (detail, kling, seedance-mini ...)
+ *   image-<model> | video-<model> | song-<model>               that tab with the model chosen (detail, kling, seedance-mini ...)
  *   models | models-video                       the model list
  *   tool-<id>                                   a tool sheet (upscale, remove_bg, animate ...)
  *   photoset-<id>                               a photoset (number from the admin panel)
@@ -66,7 +66,7 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
     sessionStorage.setItem('ng_link', visit)
   } catch { /* private mode */ }
   const link = parseLink(raw)
-  if (prompt) app.prompt = prompt
+  if (prompt && !['song', 'music'].includes(link?.screen)) app.prompt = prompt
   if (!link) return false
   const { screen, arg } = link
   const home = (mode) => { app.tab = 'home'; app.stack = ['home']; if (mode) app.mode = mode }
@@ -85,10 +85,9 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
 
     case 'image':
     case 'video':
-    case 'song':
     case 'tools': {
       home(screen)
-      if (!arg || screen === 'tools' || screen === 'song') return true
+      if (!arg || screen === 'tools') return true
       const m = (app.models[screen] || []).find((x) => x.id === arg)
       if (!m) return true
       if (app.isLocked(m)) {
@@ -97,6 +96,15 @@ export async function applyLink(app, raw = readLink(), prompt = readPrompt()) {
       } else {
         app.modelSel[screen] = m.id
       }
+      return true
+    }
+    case 'song':
+    case 'music': {
+      if (!app.models.song?.length) return false
+      home('song')
+      const model = app.models.song.find(item => item.id === arg)
+      app.musicLink = { prompt, model: model && !app.isLocked(model) ? model.id : null }
+      if (model && app.isLocked(model)) app.toast('Модель доступна по подписке')
       return true
     }
     case 'models':

@@ -3,24 +3,29 @@
     <div v-if="loading" class="spinner-row">Загружаем…</div>
     <div v-else-if="failed" class="empty pad"><h3>Не получилось загрузить</h3><button type="button" class="pill-btn" @click="load">Повторить</button></div>
     <template v-else>
-      <section class="adm-card glass">
-        <h3>Пакеты токенов</h3>
-        <p class="adm-note">Предложения из таблицы shop бота.</p>
-        <div v-for="p in v.packs" :key="p.id" class="adm-sub">
-          <b>{{ p.name }}</b>
-          <span class="adm-note">{{ p.tokens }} ток. · {{ p.price }} ₽ · {{ p.stars }} ⭐</span>
+      <section v-for="group in groups" :key="group.id" class="adm-card glass">
+        <h3>{{ group.title }}</h3>
+        <p class="adm-note">Изменения действуют в вебаппе и боте.</p>
+        <div v-for="offer in offers.filter(item => item.category === group.id)" :key="offer.id" class="adm-offer">
+          <form v-if="draft?.id === offer.id" class="adm-offer-form" @submit.prevent="saveOffer">
+            <label class="adm-f">Название<input v-model.trim="draft.text_name" required maxlength="128"></label>
+            <label class="adm-f">{{ group.amount }}<input v-model.number="draft.amount" type="number" min="1" :max="group.id === 'token' ? 10000000 : 3650" required></label>
+            <label class="adm-f">Цена, ₽<input v-model.number="draft.price" type="number" min="1" max="10000000" required></label>
+            <label class="adm-check"><input v-model="draft.active" type="checkbox">Доступно для покупки</label>
+            <div class="adm-actions">
+              <button type="submit" class="adm-btn" :disabled="busy">Сохранить пакет</button>
+              <button type="button" class="adm-btn soft" :disabled="busy" @click="draft = null">Отменить</button>
+            </div>
+          </form>
+          <template v-else>
+            <div class="adm-offer-info">
+              <b>{{ offer.text_name }}</b>
+              <span class="adm-note">{{ offer.amount }} {{ group.unit }} · {{ offer.price }} ₽ · {{ offer.stars }} Stars{{ offer.active ? '' : ' · скрыт' }}</span>
+            </div>
+            <button type="button" class="adm-btn soft sm" :disabled="busy || !!draft" @click="draft = { ...offer }">Изменить</button>
+          </template>
         </div>
-        <p v-if="!v.packs?.length" class="adm-note">Активных пакетов нет.</p>
-      </section>
-
-      <section class="adm-card glass">
-        <h3>Подписки</h3>
-        <p class="adm-note">Предложения из таблицы shop бота.</p>
-        <div v-for="offer in v.subscription_offers" :key="offer.id" class="adm-sub">
-          <b>{{ offer.name }}</b>
-          <span class="adm-note">{{ offer.days }} дн. · {{ offer.price }} ₽ · {{ offer.stars }} ⭐</span>
-        </div>
-        <p v-if="!v.subscription_offers?.length" class="adm-note">Активных предложений нет.</p>
+        <p v-if="!offers.some(item => item.category === group.id)" class="adm-note">Предложений нет.</p>
       </section>
 
       <form class="adm-card glass" @submit.prevent="save(['bonus'], 'Бонусы сохранены')">
@@ -53,13 +58,34 @@ import { section } from './shared'
 export default {
   name: 'AdminPricing',
   mixins: [section],
-  data: () => ({ v: null }),
+  data: () => ({
+    v: null, offers: [], draft: null,
+    groups: [
+      { id: 'token', title: 'Пакеты токенов', amount: 'Токенов', unit: 'ток.' },
+      { id: 'subscription', title: 'Подписки', amount: 'Дней', unit: 'дн.' },
+    ],
+  }),
   mounted() { this.load() },
   methods: {
-    load() { return this.fetch(async () => { this.v = (await adminApi.settings()).data }) },
+    load() {
+      return this.fetch(async () => {
+        const [settings, shop] = await Promise.all([adminApi.settings(), adminApi.list('shop')])
+        this.v = settings.data
+        this.offers = shop.data
+      })
+    },
+    saveOffer() {
+      return this.run(async () => {
+        const { id, text_name, amount, price, active } = this.draft
+        const { data } = await adminApi.update('shop', id, { text_name, amount, price, active })
+        this.offers = this.offers.map(item => item.id === id ? data : item).sort((a, b) => a.price - b.price || a.id - b.id)
+        this.draft = null
+        this.app.reloadCatalog()
+      }, 'Пакет сохранён')
+    },
     save(keys, ok) {
       const values = Object.fromEntries(keys.map((k) => [k, this.v[k]]))
-      return this.run(async () => { this.v = (await adminApi.saveSettings(values)).data; this.app.reloadCatalog() }, ok)
+      return this.run(async () => { this.v = (await adminApi.saveSettings(values)).data; this.offers = (await adminApi.list('shop')).data; this.app.reloadCatalog() }, ok)
     },
   },
 }

@@ -327,6 +327,9 @@ class KieProvider implements AsyncProvider, Provider
             $message = str_replace($key, '<api-key>', $message);
         }
         $message = Str::limit((string) preg_replace('#https?://[^\s"\']+#', '<url>', Bot::scrub($message)), 300);
+        if (ProviderJournal::isCopyright($message)) {
+            throw new \RuntimeException("kie.ai copyright $code: ".$message);
+        }
         if (preg_match('/polic|sensitive|nsfw|violat|prohibit|moderat|safety|flagged|inappropriate|celebrit|minor/i', $message)) {
             throw new ContentFiltered($message);
         }

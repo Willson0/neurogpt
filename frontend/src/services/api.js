@@ -11,26 +11,33 @@ export class ApiError extends Error {
   }
 }
 
-/** Browser sign-in of an admin (Telegram Login Widget), kept between visits. */
+const devAuth = import.meta.env.VITE_DEV_TELEGRAM_ID
+const sessionHeaders = { 'X-NeuroGPT-Session': '1' }
+
 export const webLogin = {
-  key: 'ng_login',
-  get() { try { return localStorage.getItem(this.key) } catch { return null } },
-  set(user) { try { localStorage.setItem(this.key, btoa(unescape(encodeURIComponent(JSON.stringify(user))))) } catch { /* private mode */ } },
-  clear() { try { localStorage.removeItem(this.key) } catch { /* private mode */ } },
+  get() { try { return localStorage.getItem('ng_login') } catch { return null } },
+  clear() { try { localStorage.removeItem('ng_login') } catch { /* private mode */ } },
+  async start(user) {
+    const login = user ? btoa(unescape(encodeURIComponent(JSON.stringify(user)))) : this.get()
+    if (!login) return
+    await request('POST', '/admin/session', { login })
+    this.clear()
+  },
+  async end() {
+    await request('DELETE', '/admin/session')
+    this.clear()
+  },
 }
 
-function authHeader() {
+function authHeader(login) {
   if (tg.initData) return 'tma ' + tg.initData
-  const login = webLogin.get()
   if (login) return 'tgl ' + login
-  const dev = import.meta.env.VITE_DEV_TELEGRAM_ID
-  if (dev) return 'tma dev:' + dev
-  return null
+  return devAuth ? 'tma dev:' + devAuth : null
 }
 
-async function request(method, path, { json, form, query } = {}) {
-  const headers = { Accept: 'application/json' }
-  const auth = authHeader()
+async function request(method, path, { json, form, query, login } = {}) {
+  const headers = { Accept: 'application/json', ...sessionHeaders }
+  const auth = authHeader(login)
   if (auth) headers.Authorization = auth
   let body
   if (form) body = form
@@ -52,7 +59,7 @@ async function request(method, path, { json, form, query } = {}) {
 
 /** A private file (needs the Authorization header), returned as an object URL for <img>. */
 async function blobUrl(path) {
-  const res = await fetch(BASE + path, { headers: { Authorization: authHeader() || '' } })
+  const res = await fetch(BASE + path, { headers: { ...sessionHeaders, Authorization: authHeader() || '' } })
   if (!res.ok) throw new ApiError(res.status, null)
   return URL.createObjectURL(await res.blob())
 }

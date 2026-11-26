@@ -28,6 +28,17 @@
         <div class="adm-actions"><button type="submit" class="adm-btn" :disabled="busy">Сохранить</button></div>
       </form>
 
+      <section class="adm-card glass">
+        <h3>Балансы AI-провайдеров</h3>
+        <div v-for="p in providers" :key="p.id" class="adm-offer">
+          <div class="adm-offer-info">
+            <b>{{ p.name }}</b>
+            <span class="adm-note" aria-live="polite">{{ p.loading ? 'Проверяем…' : p.result || 'Баланс ещё не запрашивали' }}</span>
+          </div>
+          <button type="button" class="adm-btn soft sm" :disabled="p.loading" @click="providerBalance(p)">Проверить баланс</button>
+        </div>
+      </section>
+
       <form class="adm-card glass" @submit.prevent="saveStyles">
         <h3>Стили картинок</h3>
         <p class="adm-note">Текст стиля добавляется к промпту пользователя. У стиля «any» текста нет.</p>
@@ -50,10 +61,24 @@ import { section } from './shared'
 export default {
   name: 'AdminSettings',
   mixins: [section],
-  data: () => ({ v: null, styles: [], uploadMb: 10 }),
+  data: () => ({ v: null, styles: [], uploadMb: 10,
+    providers: [
+      { id: 'hydra', name: 'Hydra AI', unit: '₽', result: '', loading: false },
+      { id: 'kie', name: 'Kie AI', unit: 'кредитов', result: '', loading: false },
+    ],
+  }),
   mounted() { this.load() },
   methods: {
     load() { return this.fetch(async () => { this.take((await adminApi.settings()).data) }) },
+    async providerBalance(provider) {
+      provider.loading = true
+      try {
+        const result = await adminApi.list('provider-balance/' + provider.id)
+        provider.result = new Intl.NumberFormat('ru', { maximumFractionDigits: 3 }).format(result.amount) + ' ' + provider.unit
+      } catch (error) {
+        provider.result = error.body?.message || 'Не удалось получить баланс. Попробуйте ещё раз.'
+      } finally { provider.loading = false }
+    },
     take(v) {
       this.v = v
       this.uploadMb = Math.floor(v.upload_max_kb / 1024)

@@ -57,7 +57,7 @@
       <details v-if="!draft.instrumental" class="music-more" :open="lyricsOpen" @toggle="lyricsOpen = $event.target.open">
         <summary>Сочинить текст</summary>
         <div class="music-stack">
-          <label class="music-field"><span>Тема для текста</span><textarea v-model.trim="draft.lyricPrompt" rows="2" maxlength="200" placeholder="Тема, язык и настроение песни" /></label>
+          <label class="music-field"><span>Тема для текста</span><textarea v-model.trim="draft.lyricPrompt" rows="2" maxlength="1500" placeholder="Тема, язык и настроение песни" /></label>
           <button type="button" class="pill-btn hot" :disabled="busy || running('lyrics') || !(draft.lyricPrompt || draft.prompt)" @click="generateLyrics">{{ running('lyrics') ? 'Пишем текст…' : 'Сочинить · ' + priceLabel('lyrics') }}</button>
           <div v-for="(variant, index) in lyricOptions" :key="index" class="music-option">
             <details><summary>{{ variant.title || 'Черновик ' + (index + 1) }}</summary><p class="music-lyrics">{{ variant.text }}</p></details>
@@ -126,7 +126,10 @@
         <div><h2>{{ editLabels[editing.operation] }}</h2><p v-if="editing.track">{{ editing.track.title || 'Выбранная дорожка' }}</p></div>
         <button class="pill-btn" type="button" @click="closeEdit">Назад</button>
       </div>
-      <MusicAudioInput v-if="uploadEdits.includes(editing.operation)" v-model="editFile" label="Исходное аудио · до 20 МБ" />
+      <p v-if="editing.operation === 'cover_audio'" class="music-muted">
+        {{ editing.generation ? 'Suno сохранит основу мелодии и применит новый стиль.' : 'Загрузите свою запись или аудио, на переработку которого у вас есть разрешение.' }}
+      </p>
+      <MusicAudioInput v-if="uploadEdits.includes(editing.operation) && !editing.generation" v-model="editFile" label="Исходное аудио · до 20 МБ" />
       <template v-if="editing.operation === 'mashup'">
         <MusicAudioInput v-model="editFile" label="Первая аудиодорожка · до 20 МБ" />
         <MusicAudioInput v-model="secondEditFile" label="Вторая аудиодорожка · до 20 МБ" />
@@ -201,7 +204,7 @@
     <section v-else class="music-panel" aria-label="Мои треки">
       <div class="music-heading"><div><h2>Мои треки</h2><p>Прослушивайте варианты, скачивайте и редактируйте дорожки.</p></div></div>
       <details class="music-more">
-        <summary>Работа со своим аудио</summary>
+        <summary>Каверы и обработка своего аудио</summary>
         <div class="music-chips">
           <button v-for="operation in uploadEdits" :key="operation" type="button" class="pill-btn" @click="openEdit({ operation })">{{ editLabels[operation] }}</button>
           <button type="button" class="pill-btn" @click="openEdit({ operation: 'mashup' })">{{ editLabels.mashup }}</button>
@@ -209,7 +212,9 @@
       </details>
       <p v-if="loading && !jobs.length" class="music-muted" role="status">Загружаем треки…</p>
       <p v-else-if="!tracks.length && !activeJobs.length && !loadError" class="music-muted">Готовые песни появятся здесь.</p>
-      <MusicTrack v-for="item in tracks" :key="item.key" v-bind="item" @edit="openEdit" @play="play" />
+      <label v-if="tracks.length" class="music-field"><span>Найти в моих треках</span><input v-model.trim="trackQuery" type="search" placeholder="Название или промпт"></label>
+      <p v-if="trackQuery && !matchingTracks.length" class="music-muted">{{ nextPage ? 'В загруженных треках совпадений нет. Можно загрузить ещё.' : 'Ничего не найдено. Измените запрос.' }}</p>
+      <MusicTrack v-for="item in matchingTracks" :key="item.key" v-bind="item" @edit="openEdit" @play="play" />
       <button v-if="nextPage || loadError" type="button" class="pill-btn" :disabled="loading" @click="load(nextPage || 1)">{{ loadError ? 'Повторить загрузку' : 'Показать ещё' }}</button>
     </section>
 
@@ -276,6 +281,15 @@ const blankDraft = (model = models.value.find(m => !app.isLocked(m))?.id || 'sun
 })
 if (!app.musicDraft) app.musicDraft = blankDraft()
 const draft = app.musicDraft
+watch(() => app.musicLink, (link) => {
+  if (!link) return
+  if (link.prompt) {
+    draft.custom_mode = false
+    draft.prompt = link.prompt
+  }
+  if (link.model) draft.model = link.model
+  app.musicLink = null
+}, { immediate: true })
 const jobs = ref([])
 const profiles = ref([])
 const lyricsOpen = ref(false)
@@ -357,6 +371,13 @@ const tracks = computed(() => {
       return { generation, track, index, key, cover: covers.get(key) || null }
     })
   })
+})
+
+const trackQuery = ref('')
+const matchingTracks = computed(() => {
+  const query = trackQuery.value.toLocaleLowerCase('ru')
+  return tracks.value.filter(({ generation, track }) => [track.title, generation.music?.name, generation.prompt]
+    .some(value => String(value || '').toLocaleLowerCase('ru').includes(query)))
 })
 
 function readTemplates() {
@@ -456,10 +477,17 @@ function statusLabel(item) {
   if (item.status === 'queued') return 'В очереди'
   if (item.status === 'processing') return 'В работе'
   if (item.status === 'cancelled') return 'Отменено'
-  if (item.error === 'content_filtered') return 'Запрос не прошёл фильтр'
-  if (item.error === 'unavailable') return 'Модель временно недоступна'
-  if (item.music?.operation === 'voice_create') return 'Проверка голоса не завершилась. Попробуйте новую запись.'
-  return item.cost ? 'Не получилось. Токены возвращены.' : 'Не получилось. Попробуйте ещё раз.'
+  const messages = {
+    copyright: 'Suno отклонил материал по авторским правам. Используйте свою запись или трек из своей библиотеки.',
+    content_filtered: 'Запрос отклонён модерацией. Измените описание или исходный файл.',
+    unavailable: 'Модель временно недоступна. Попробуйте позже.',
+    timeout: 'Истекло время ожидания. Попробуйте ещё раз.',
+    connection: 'Связь с провайдером прервалась. Попробуйте ещё раз.',
+  }
+  const reason = messages[item.error] || (item.music?.operation === 'voice_create'
+    ? 'Проверка голоса не завершилась. Попробуйте новую запись.'
+    : 'Не удалось завершить задачу. Попробуйте ещё раз.')
+  return item.cost ? reason + ' Токены возвращены.' : reason
 }
 
 async function poll() {
@@ -604,7 +632,7 @@ async function generate() {
 
 function generateLyrics() {
   lyricsOpen.value = true
-  return submit('lyrics', { prompt: (draft.lyricPrompt || draft.prompt).slice(0, 200) })
+  return submit('lyrics', { prompt: (draft.lyricPrompt || draft.prompt).slice(0, 1500) })
 }
 
 function boostStyle() { return submit('boost_style', { style: draft.style }) }

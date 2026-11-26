@@ -129,3 +129,34 @@
   outline-offset: 4px;
 }
 .adm-body label.adm-search-hit { font-weight: 600; }
+
+.adm-offer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding-block: var(--space-sm); border-top: 1px solid var(--color-rule); }
+.adm-offer-info { display: grid; min-width: 0; gap: var(--space-2xs); overflow-wrap: anywhere; }
+.adm-offer > button { flex: none; }
+.adm-offer-form { width: 100%; display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: var(--space-sm); align-items: end; }
+.adm-offer-form > .adm-actions { grid-column: 1 / -1; }
+.adm-offer-form > .adm-check { grid-column: 1 / -1; }
+.adm-admin-actions { flex-wrap: wrap; justify-content: flex-end; }
+.adm-modal .adm-work { gap: var(--space-md); align-content: start; }
+.adm-work-head { display: flex; justify-content: space-between; align-items: start; gap: var(--space-sm); min-width: 0; }
+.adm-work-head h3 { overflow-wrap: anywhere; }
+.adm-work-head .adm-note { margin-top: var(--space-2xs); }
+.adm-work-head button { flex: none; }
+.adm-work-audio { display: grid; gap: var(--space-sm); padding: var(--space-sm); background: var(--color-page); border-radius: var(--radius-ctl); }
+.adm-work-track { display: grid; gap: var(--space-2xs); min-width: 0; font-size: var(--text-2); overflow-wrap: anywhere; }
+.adm-work-track + .adm-work-track { padding-top: var(--space-sm); border-top: 1px solid var(--color-rule); }
+.adm-work-track audio { display: block; width: 100%; height: 44px; }
+.adm-work-media { display: grid; justify-items: center; overflow: hidden; border-radius: var(--radius-ctl); background: var(--color-page); }
+.adm-work-media :is(img, video) { display: block; max-width: 100%; max-height: 56vh; object-fit: contain; }
+.adm-work-error { padding: var(--space-sm); border: 1px solid var(--color-rule); border-radius: var(--radius-ctl); display: grid; gap: var(--space-xs); }
+.adm-work-logs { list-style: none; padding: 0; display: grid; gap: var(--space-xs); }
+.adm-work-logs li { border-top: 1px solid var(--color-rule); padding-top: var(--space-xs); display: grid; gap: var(--space-2xs); overflow-wrap: anywhere; }
+.adm-work-details { border-top: 1px solid var(--color-rule); padding-top: var(--space-xs); min-width: 0; }
+.adm-work-details summary { cursor: pointer; }
+.adm-work-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; margin-top: var(--space-xs); }
+@media (max-width: 560px) {
+  .adm-offer-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adm-offer-form > :first-child { grid-column: 1 / -1; }
+  .adm-admin-row { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .adm-admin-row .adm-admin-actions { grid-column: 2; justify-content: flex-start; }
+}

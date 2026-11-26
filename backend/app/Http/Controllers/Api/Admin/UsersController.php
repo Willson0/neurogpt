@@ -143,7 +143,24 @@ class UsersController extends Controller
     {
         abort_unless(AdminOnly::isOwner($request->user()), 403, 'Only the main admin can manage admins');
         abort_unless(in_array($telegramId, AdminOnly::added(), true), 404);
-        DB::table('admins')->where('id', $telegramId)->delete();
+        DB::transaction(function () use ($telegramId) {
+            DB::table('admins')->where('id', $telegramId)->delete();
+            DB::table('wa_admin_generation_alerts')->where('telegram_id', $telegramId)->delete();
+        });
+
+        return response()->json(['data' => $this->adminList()]);
+    }
+
+    public function generationAlerts(Request $request, int $telegramId)
+    {
+        abort_unless(AdminOnly::isOwner($request->user()) || (int) $request->user()->telegram_id === $telegramId, 403);
+        abort_unless(AdminOnly::allowsId($telegramId), 404);
+        $data = $request->validate(['enabled' => ['required', 'boolean']]);
+        if ($data['enabled']) {
+            DB::table('wa_admin_generation_alerts')->insertOrIgnore(['telegram_id' => $telegramId]);
+        } else {
+            DB::table('wa_admin_generation_alerts')->where('telegram_id', $telegramId)->delete();
+        }
 
         return response()->json(['data' => $this->adminList()]);
     }
@@ -154,12 +171,15 @@ class UsersController extends Controller
         $users = User::whereIn('id', $ids)->get()->keyBy('id');
         $botNames = DB::table('admins')->whereIn('id', $ids)->pluck('username', 'id');
 
+        $alerts = DB::table('wa_admin_generation_alerts')->whereIn('telegram_id', $ids)->pluck('telegram_id')->map(fn ($id) => (int) $id)->all();
+
         return collect($ids)->unique()->values()->map(fn (int $id) => [
             'telegram_id' => $id,
             'name' => $users->get($id)?->displayName(),
             'username' => $users->get($id)?->username ?: ($botNames[$id] ?? null),
             'is_owner' => in_array($id, AdminOnly::owners(), true),
             'opened_app' => $users->has($id),
+            'generation_alerts' => in_array($id, $alerts, true),
         ])->all();
     }
 

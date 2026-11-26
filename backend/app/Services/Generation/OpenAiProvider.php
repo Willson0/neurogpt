@@ -22,21 +22,44 @@ class OpenAiProvider implements Provider
         return Http::withToken($cfg['api_key'])->baseUrl(rtrim($cfg['base_url'], '/'))->timeout($timeout ?? $cfg['timeout'])->connectTimeout(15)->acceptJson();
     }
 
-    public function chat(AiModel $model, array $messages, ?int $timeout = null): string
+    public function chat(AiModel $model, array $messages, ?int $timeout = null, ?Generation $generation = null): string
     {
         $res = ProviderJournal::request('openai', 'chat', fn () => $this->http($timeout)->post('/chat/completions', [
             'model' => $model->provider_model,
             'messages' => $messages,
-        ]), $model)->throw()->json();
+        ]), $model, $generation)->throw()->json();
 
         $text = $res['choices'][0]['message']['content'] ?? null;
-        if (! is_string($text) || $text === '') {
+        if (! is_string($text) || trim($text) === '') {
             $error = new RuntimeException('Empty answer from the model');
-            ProviderJournal::failure('openai', 'chat_result', $model, null, $error);
+            ProviderJournal::failure('openai', 'chat_result', $model, $generation, $error);
             throw $error;
         }
 
         return $text;
+    }
+
+    public function music(Generation $generation, string $operation): MediaResult
+    {
+        $input = $generation->params['music']['input'];
+        $lyrics = $operation === 'lyrics';
+        $model = new AiModel([
+            'kind' => $lyrics ? 'text' : 'image',
+            'provider_model' => config('neurogpt.providers.openai.'.($lyrics ? 'text_model' : 'image_model')),
+        ]);
+        if ($lyrics) {
+            $text = $this->chat($model, [
+                ['role' => 'system', 'content' => 'Write original song lyrics in the language requested, or the language of the brief. Return only lyrics with section markers such as [Verse] and [Chorus]. Keep the result below 5000 characters.'],
+                ['role' => 'user', 'content' => $input['prompt']],
+            ], null, $generation);
+
+            return new MediaResult('', '', ['lyrics' => [['title' => 'Текст песни', 'text' => mb_substr(trim($text), 0, 5000)]]]);
+        }
+
+        $generation->finalPrompt = $input['prompt'];
+        $image = $this->media($generation, $model, null);
+
+        return new MediaResult($image->bytes, $image->extension, ['cover' => true]);
     }
 
     public function media(Generation $generation, AiModel $model, ?string $inputPath): MediaResult

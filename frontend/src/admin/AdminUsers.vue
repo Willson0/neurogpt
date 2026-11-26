@@ -58,10 +58,15 @@
 
     <ul v-else class="list glass">
       <li v-for="a in items" :key="a.telegram_id">
-        <div class="row">
+        <div class="row adm-admin-row">
           <span :class="['sq', a.is_owner ? 'hot' : '']"><svg class="ic-s" aria-hidden="true"><use :href="a.is_owner ? '#i-crown' : '#i-user'" /></svg></span>
           <span class="t"><b>{{ a.name || 'Ещё не открывал приложение' }}</b><span>{{ a.username ? '@' + a.username + ' · ' : '' }}id {{ a.telegram_id }}</span></span>
-          <span class="end">
+          <span class="end adm-admin-actions">
+            <button v-if="canManage || String(a.telegram_id) === String(app.user?.telegram_id)" type="button" class="adm-btn soft sm"
+              :aria-label="'Уведомления об ошибках для ' + (a.name || a.telegram_id)"
+              :aria-pressed="a.generation_alerts" :disabled="busy" @click="toggleAlerts(a)">
+              {{ a.generation_alerts ? 'Уведомления включены' : 'Включить уведомления' }}
+            </button>
             <span v-if="a.is_owner" class="adm-pill hot">главный</span>
             <button v-else-if="canManage" type="button" class="adm-btn danger sm" :disabled="busy" @click="removeAdmin(a)">{{ confirmAdmin === a.telegram_id ? 'Точно убрать?' : 'Убрать' }}</button>
           </span>
@@ -114,6 +119,11 @@ export default {
     replace(old, fresh) { const i = this.items.indexOf(old); this.items.splice(i, 1, fresh); this.edit = this.items[i]; if (fresh.id === this.app.user.id) this.app.refreshUser() },
     balance(u, sign) { return this.run(async () => { this.replace(u, (await adminApi.balance(u.id, sign * this.amount, this.comment || null)).data) }, sign > 0 ? 'Токены начислены' : 'Токены списаны') },
     setPlan(u) { return this.run(async () => { this.replace(u, (await adminApi.update('users', u.id, { plan: this.plan, plan_days: this.plan === 'free' ? null : this.days })).data) }, 'Подписка обновлена') },
+    toggleAlerts(admin) {
+      return this.run(async () => {
+        this.items = (await adminApi.update('admins', admin.telegram_id + '/generation-alerts', { enabled: !admin.generation_alerts })).data
+      }, 'Настройка сохранена')
+    },
     addAdmin() { return this.run(async () => { this.items = (await adminApi.create('admins', { user: this.newAdmin })).data; this.newAdmin = '' }, 'Администратор добавлен') },
     removeAdmin(a) {
       if (this.confirmAdmin !== a.telegram_id) { this.confirmAdmin = a.telegram_id; return }

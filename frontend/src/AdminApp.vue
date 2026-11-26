@@ -91,7 +91,7 @@ export default {
       }
       const s = document.createElement('script')
       s.async = true
-      s.src = '/vendor/telegram-widget.js'
+      s.src = '/vendor/telegram-widget.js?v=22-1'
       s.onerror = () => { this.loginError = 'Виджет входа не загрузился. Откройте приложение в Telegram.' }
       s.dataset.telegramLogin = bot
       s.dataset.size = 'large'

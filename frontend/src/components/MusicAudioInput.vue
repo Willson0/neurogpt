@@ -1,9 +1,15 @@
 <template>
   <div class="audio-input">
-    <label class="music-field">
+    <div class="music-field">
       <span>{{ label }}</span>
-      <input ref="picker" type="file" accept="audio/*,.mp3,.wav,.m4a,.webm" @change="pick">
-    </label>
+      <div class="audio-file-control">
+        <button type="button" class="pill-btn" :aria-label="label + ' · выбрать файл'" @click="picker.click()">
+          {{ modelValue ? 'Заменить файл' : 'Выбрать файл' }}
+        </button>
+        <span v-if="modelValue" :title="modelValue.name">{{ modelValue.name }}</span>
+        <input ref="picker" type="file" hidden accept="audio/*,.mp3,.wav,.m4a,.webm" @change="pick">
+      </div>
+    </div>
     <div v-if="recordable || modelValue" class="audio-input-actions">
       <button v-if="recordable" type="button" class="pill-btn" @click="recording ? stop() : start()">{{ recording ? 'Остановить запись' : 'Записать с микрофона' }}</button>
       <button v-if="modelValue" type="button" class="pill-btn" @click="clear">Убрать запись</button>

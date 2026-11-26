@@ -28,9 +28,10 @@
           <option v-for="model in models" :key="model.id" :value="model.id" :disabled="app.isLocked(model)">{{ model.name }}</option>
         </select>
       </div>
-      <div class="music-switch" role="group" aria-label="Режим создания">
+      <div class="music-switch music-switch-create" role="group" aria-label="Режим создания">
         <button type="button" :aria-pressed="!draft.custom_mode" @click="draft.custom_mode = false">По идее</button>
         <button type="button" :aria-pressed="draft.custom_mode" @click="draft.custom_mode = true">Свои настройки</button>
+        <button type="button" :aria-pressed="false" @click="openEdit({ operation: 'cover_audio', reference: true })">По аудио</button>
       </div>
 
       <label v-if="!draft.custom_mode" class="music-field">
@@ -121,10 +122,45 @@
       <button class="music-submit" type="submit" :disabled="busy || !canGenerate">{{ busy ? 'Отправляем…' : 'Создать песню · ' + priceLabel('generate') }}</button>
     </form>
 
+    <form v-else-if="tab === 'compose' && editing?.reference" class="music-panel" @submit.prevent="submitReference">
+      <div class="music-heading">
+        <div><h2>Песня по аудио</h2><p>Загрузите запись и добавьте свой текст.</p></div>
+        <button class="pill-btn" type="button" :disabled="busy" @click="closeEdit('compose')">Назад</button>
+      </div>
+      <div class="music-switch" role="group" aria-label="Что взять из записи">
+        <button type="button" :aria-pressed="editForm.method === 'cover'" :disabled="busy" @click="editForm.method = 'cover'">Мелодию</button>
+        <button type="button" :aria-pressed="editForm.method === 'style'" :disabled="busy" @click="editForm.method = 'style'">Звучание</button>
+      </div>
+      <p class="music-muted">{{ editForm.method === 'cover'
+        ? 'Suno получит запись и попробует сохранить мелодию. Загрузите аудио, которое можете переработать.'
+        : 'Устройство оценит темп и динамику. Suno получит описание звучания для новой песни.' }}</p>
+      <MusicAudioInput v-model="editFile" label="Исходное аудио · до 20 МБ" />
+      <p v-if="analyzing" class="music-muted" role="status">Анализируем звучание…</p>
+      <p v-else-if="referenceStyle" class="music-reference-result" role="status"><b>Звучание записи</b>{{ referenceStyle }}</p>
+      <p v-else-if="analysisError" class="music-error" role="alert">{{ analysisError }}</p>
+      <div class="music-fields-pair">
+        <label class="music-field"><span>Название песни</span><input v-model.trim="editForm.title" maxlength="80" required></label>
+        <label class="music-field"><span>Модель</span><select v-model="editForm.model">
+          <option v-for="model in models" :key="model.id" :value="model.id" :disabled="app.isLocked(model)">{{ model.name }}</option>
+        </select></label>
+      </div>
+      <label class="music-field"><span>Ваш текст <small>{{ editForm.lyrics.length }} / 5000</small></span>
+        <textarea v-model.trim="editForm.lyrics" rows="6" maxlength="5000" placeholder="[Verse]&#10;[Chorus]" required />
+      </label>
+      <label class="music-field"><span>Пожелания к звучанию <small>Необязательно</small></span>
+        <textarea v-model.trim="editForm.style" rows="2" maxlength="780" placeholder="Например, живые барабаны и мягкий вокал" />
+      </label>
+      <label class="music-check"><input v-model="editForm.auto_send" type="checkbox"> Отправить в Telegram</label>
+      <p v-if="error" class="music-error" role="alert">{{ error }}</p>
+      <button type="submit" class="music-submit" :disabled="busy || !editFile || !editForm.lyrics || !editForm.title || analyzing || (editForm.method === 'style' && !referenceStyle)">
+        {{ busy ? 'Отправляем…' : (editForm.method === 'cover' ? 'Создать кавер' : 'Создать новую песню') + ' · ' + priceLabel(editForm.method === 'cover' ? 'cover_audio' : 'generate', editForm.model) }}
+      </button>
+    </form>
+
     <form v-else-if="tab === 'compose' && editing" class="music-panel" @submit.prevent="submitEdit">
       <div class="music-heading">
         <div><h2>{{ editLabels[editing.operation] }}</h2><p v-if="editing.track">{{ editing.track.title || 'Выбранная дорожка' }}</p></div>
-        <button class="pill-btn" type="button" @click="closeEdit">Назад</button>
+        <button class="pill-btn" type="button" @click="closeEdit()">Назад</button>
       </div>
       <p v-if="editing.operation === 'cover_audio'" class="music-muted">
         {{ editing.generation ? 'Suno сохранит основу мелодии и применит новый стиль.' : 'Загрузите свою запись или аудио, на переработку которого у вас есть разрешение.' }}
@@ -206,7 +242,7 @@
       <details class="music-more">
         <summary>Каверы и обработка своего аудио</summary>
         <div class="music-chips">
-          <button v-for="operation in uploadEdits" :key="operation" type="button" class="pill-btn" @click="openEdit({ operation })">{{ editLabels[operation] }}</button>
+          <button v-for="operation in uploadEdits" :key="operation" type="button" class="pill-btn" @click="openEdit({ operation, reference: operation === 'cover_audio' })">{{ editLabels[operation] }}</button>
           <button type="button" class="pill-btn" @click="openEdit({ operation: 'mashup' })">{{ editLabels.mashup }}</button>
         </div>
       </details>
@@ -239,6 +275,7 @@ import { useApp } from '../stores/app'
 import { api } from '../services/api'
 import { tok } from '../services/format'
 import { tg } from '../services/telegram'
+import { describeAudio } from '../services/audioStyle'
 
 const app = useApp()
 const tabs = [{ id: 'compose', label: 'Создать' }, { id: 'library', label: 'Мои треки' }, { id: 'voice', label: 'Голос' }]
@@ -308,6 +345,26 @@ const cancelling = ref(null)
 const editing = ref(null)
 const editForm = ref({})
 const editFile = ref(null)
+const analyzing = ref(false)
+const analysisError = ref('')
+const referenceStyle = ref('')
+
+watch([editFile, () => editing.value?.reference && editForm.value.method], async ([file, method], _, onCleanup) => {
+  let active = true
+  onCleanup(() => { active = false })
+  analysisError.value = ''
+  referenceStyle.value = ''
+  analyzing.value = !!file && method === 'style'
+  if (!analyzing.value) return
+  try {
+    const description = await describeAudio(file)
+    if (active) referenceStyle.value = description
+  } catch {
+    if (active) analysisError.value = 'Не удалось проанализировать запись. Попробуйте MP3, M4A или WAV с музыкой длительностью от 4 секунд.'
+  } finally {
+    if (active) analyzing.value = false
+  }
+})
 const secondEditFile = ref(null)
 const chosenFiles = app.musicReferences
 const restorePrompt = ref(null)
@@ -478,7 +535,7 @@ function statusLabel(item) {
   if (item.status === 'processing') return 'В работе'
   if (item.status === 'cancelled') return 'Отменено'
   const messages = {
-    copyright: 'Suno отклонил материал по авторским правам. Используйте свою запись или трек из своей библиотеки.',
+    copyright: 'Suno отклонил исходник по авторским правам. Для новой песни с похожим характером выберите «По аудио» → «Звучание».',
     content_filtered: 'Запрос отклонён модерацией. Измените описание или исходный файл.',
     unavailable: 'Модель временно недоступна. Попробуйте позже.',
     timeout: 'Истекло время ожидания. Попробуйте ещё раз.',
@@ -656,10 +713,11 @@ function openEdit(details) {
   const sourceModel = version ? 'suno-' + version.toLowerCase().replaceAll('_', '-') : null
   editForm.value = {
     model: details.operation === 'extend' || details.operation === 'replace' ? sourceModel || 'suno-v6' : chosenModel.value?.id || 'suno-v6',
-    title: ['extend', 'replace'].includes(details.operation) ? track?.title?.slice(0, 80) || '' : '',
+    method: details.reference ? 'cover' : undefined,
+    title: details.reference ? draft.title : ['extend', 'replace'].includes(details.operation) ? track?.title?.slice(0, 80) || '' : '',
     prompt: details.operation === 'cover' && track?.title ? 'Обложка для песни «' + track.title.slice(0, 80) + '»' : '',
     style: ['extend', 'replace'].includes(details.operation) ? track?.style?.slice(0, 1000) || '' : '',
-    lyrics: details.operation === 'replace' ? track?.lyrics?.slice(0, 5000) || '' : '',
+    lyrics: details.reference ? draft.lyrics : details.operation === 'replace' ? track?.lyrics?.slice(0, 5000) || '' : '',
     description: '', start: details.operation === 'replace' ? 0 : '', end: '',
     stem_type: details.operation === 'stems' ? 'separate_vocal' : '',
     instrumental: false, auto_send: draft.auto_send, negative_tags: '',
@@ -670,12 +728,31 @@ function openEdit(details) {
   nextTick(() => studio.value?.querySelector('form')?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
 }
 
-function closeEdit() {
+function closeEdit(destination = 'library') {
   editing.value = null
   editForm.value = {}
   editFile.value = null
   secondEditFile.value = null
-  selectTab('library')
+  selectTab(destination)
+}
+
+async function submitReference() {
+  const details = editing.value
+  const file = editFile.value
+  const { method, model, title, lyrics, style, auto_send } = editForm.value
+  if (busy.value || !file || !title || !lyrics || (method === 'style' && !referenceStyle.value)) return
+
+  const isCover = method === 'cover'
+  const fields = { model, title, lyrics, auto_send, instrumental: false }
+  if (isCover) {
+    fields.style = style
+  } else {
+    fields.custom_mode = true
+    fields.style = ['Оригинальная мелодия. Характер звучания: ' + referenceStyle.value, style].filter(Boolean).join('. ')
+  }
+  const snapshot = { kind: 'edit', fields: { ...editForm.value }, details, file, secondFile: null }
+  const job = await submit(isCover ? 'cover_audio' : 'generate', fields, isCover ? file : null, undefined, snapshot)
+  if (job && !closed && editing.value === details) closeEdit()
 }
 
 async function submitEdit() {
